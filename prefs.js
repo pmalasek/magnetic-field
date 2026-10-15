@@ -189,8 +189,8 @@ export default class MagneticFieldPreferences extends ExtensionPreferences {
 
         const linked = new Adw.SwitchRow({
             title: _('Linked resizing'),
-            subtitle: _('Windows placed by Arrange or by a saved layout share their ' +
-                'edges: resizing one resizes its neighbours'),
+            subtitle: _('Snapped and tiled windows that touch share their edges: ' +
+                'resizing one resizes its neighbours'),
         });
         settings.bind('linked-resizing', linked, 'active', Gio.SettingsBindFlags.DEFAULT);
         layout.add(linked);

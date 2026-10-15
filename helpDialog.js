@@ -161,6 +161,11 @@ class HelpDialog extends ModalDialog.ModalDialog {
             'before it was first snapped. Shortcuts, the gap between windows ' +
             'and the size of the drag zones can be changed in Settings.')));
 
+        this.contentLayout.add_child(this._paragraph(
+            _('Snapped windows that touch share their edge: resizing one resizes ' +
+            'the other. Drop a window near the edge of a snapped window to split ' +
+            'its area, or onto its middle to swap them.')));
+
         this.contentLayout.add_child(this._heading(_('Layouts')));
         this.contentLayout.add_child(this._paragraph(
             _('Arrange windows tiles the windows of the workspace: the focused ' +

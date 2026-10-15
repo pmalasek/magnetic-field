@@ -1,6 +1,6 @@
 uuid        := "magnetic-field@petr.malasek.gmail.com"
 install_dir := env("HOME") / ".local/share/gnome-shell/extensions" / uuid
-sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js layouts.js layoutDialog.js tiling.js tilingManager.js windowUtils.js metadata.json stylesheet.css"
+sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js layouts.js layoutDialog.js tiling.js tilingManager.js windowUtils.js edges.js edgeLinker.js metadata.json stylesheet.css"
 schema      := "schemas/org.gnome.shell.extensions.magnetic-field.gschema.xml"
 zip_file    := uuid + ".shell-extension.zip"
 
@@ -33,6 +33,7 @@ zip: schemas
         --extra-source=helpDialog.js --extra-source=layouts.js \
         --extra-source=layoutDialog.js --extra-source=tiling.js \
         --extra-source=tilingManager.js --extra-source=windowUtils.js \
+        --extra-source=edges.js --extra-source=edgeLinker.js \
         --extra-source=icons .
     @ls -l {{zip_file}}
 

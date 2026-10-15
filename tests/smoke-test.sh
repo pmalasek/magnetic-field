@@ -327,7 +327,7 @@ action swap-left
 check "swap left: back" "0,32,1200,1048" "$(rect_w "$E1")"
 ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
 move_pointer 1560 232
-check "drag onto another window: swap target" "true" "$(ev "$EXT._swapTarget?.window === $E2")"
+check "drag onto the middle of another window: swap" "true center" "$(ev "($EXT._dropTarget?.window === $E2) + ' ' + $EXT._dropTarget?.region")"
 check "drag onto another window: preview" "true" "$(ev "$EXT._preview.visible")"
 ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
 sleep 1.5
@@ -340,16 +340,16 @@ sleep 1.5
 check "dropped onto the calculator" "1200,432,720,648" "$(rect_w "$E1")"
 ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
 move_pointer 1300 300
-check "over another window: swap target" "true" "$(ev "!!$EXT._swapTarget")"
+check "near the edge of another window: split" "left" "$(ev "$EXT._dropTarget?.region")"
 ev "$E1.move_frame(true, 700, 300); 'ok'" >/dev/null
 move_pointer 1500 800
-check "over its own cell: no swap target" "false" "$(ev "!!$EXT._swapTarget")"
+check "over its own cell: no drop target" "false" "$(ev "!!$EXT._dropTarget")"
 ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
 sleep 1.5
 check "dropped onto its own cell after moving: back in place" "1200,432,720,648" "$(rect_w "$E1")"
 ev "$EXT._onGrabBegin($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
 move_pointer 3 540
-check "zones win over swapping" "snap-left-half null" "$(ev "$EXT._dragZone + ' ' + ($EXT._swapTarget?.id ?? null)")"
+check "zones win over dropping onto a window" "snap-left-half false" "$(ev "$EXT._dragZone + ' ' + !!$EXT._dropTarget")"
 ev "$EXT._onGrabEnd($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
 sleep 1.5
 check "dropped into a zone: out of the tiling" "false" "$(tiled "$E2")"
@@ -442,6 +442,78 @@ check "saved layouts submenu" "Thirds" "$(ev "$IND._savedSection._getMenuItems()
 ev "$IND._savedSection._getMenuItems()[0].activate(imports.gi.Clutter.get_current_event()); 'ok'" >/dev/null
 sleep 1.5
 check "picking a saved layout restores it" "Thirds" "$(ev "$EXT._settings.get_string('last-layout')")"
+
+echo "== snapped windows: linked edges"
+linked() { # JS window expressions
+    list=$(printf '%s,' "$@")
+    ev "[$list].map(w => $EXT._isLinked(w)).join(' ')"
+}
+ev "$EXT._tiling.releaseAll(); 'ok'" >/dev/null
+focus_w "$E1"
+action snap-left-half
+focus_w "$CALC"
+action snap-right-half
+check "windows snapped to zones are linked" "true true" "$(linked "$E1" "$CALC")"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.RESIZING_E); $E1.move_resize_frame(true, 0, 32, 1200, 1048); 'ok'" >/dev/null
+sleep 1
+check "live: the neighbour follows the shared edge" "1200,32,720,1048" "$(rect_w "$CALC")"
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.RESIZING_E); 'ok'" >/dev/null
+sleep 1.5
+check "after the resize" "0,32,1200,1048 1200,32,720,1048" "$(rect_w "$E1") $(rect_w "$CALC")"
+check "still linked after the resize" "true true" "$(linked "$E1" "$CALC")"
+
+echo "== snapped windows: dropping onto a window"
+ev "Shell.AppSystem.get_default().lookup_app('org.gnome.TextEditor.desktop').open_new_window(-1); 'ok'" >/dev/null
+wait_for "second editor window" "2" "$WINS.filter(x => x.get_wm_class() === 'org.gnome.TextEditor').length"
+sleep 1
+check "a new window is not linked" "false" "$(linked "$E2")"
+ev "$EXT._onGrabBegin($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 1560 100
+check "drop target: top of the calculator" "true top 1200,32,720,524" \
+    "$(ev "$R ($EXT._dropTarget?.window === $CALC) + ' ' + $EXT._dropTarget?.region + ' ' + R($EXT._dropTarget.preview)")"
+check "preview of the half" "true" "$(ev "$EXT._preview.visible")"
+ev "$EXT._onGrabEnd($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "dropped window takes the top half" "1200,32,720,524" "$(rect_w "$E2")"
+check_prefix "the target keeps the bottom half" "1200,556,720," "$(rect_w "$CALC")"
+check "all three linked" "true true true" "$(linked "$E1" "$E2" "$CALC")"
+ev "$EXT._onGrabBegin($E2, Meta.GrabOp.RESIZING_W); $E2.move_resize_frame(true, 1000, 32, 920, 524); 'ok'" >/dev/null
+sleep 1
+ev "$EXT._onGrabEnd($E2, Meta.GrabOp.RESIZING_W); 'ok'" >/dev/null
+sleep 1.5
+check "a divider shared by three windows: left window" "0,32,1000,1048" "$(rect_w "$E1")"
+check_prefix "a divider shared by three windows: window below" "1000,556,920," "$(rect_w "$CALC")"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 1460 294
+check "drop target: middle of a window swaps" "true center" "$(ev "($EXT._dropTarget?.window === $E2) + ' ' + $EXT._dropTarget?.region")"
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "swapped: dragged window in the target's place" "1000,32,920,524" "$(rect_w "$E1")"
+check "swapped: target where the dragged window was" "0,32,1000,1048" "$(rect_w "$E2")"
+check "swapped windows stay linked" "true true" "$(linked "$E1" "$E2")"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 1700 200
+check "nothing under the dragged window: no drop target" "false" "$(ev "!!$EXT._dropTarget")"
+ev "$E1.move_frame(true, 1300, 100); 'ok'" >/dev/null
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1
+check "moved away by hand: no longer linked" "false" "$(linked "$E1")"
+
+echo "== tiled windows: dropping onto an edge"
+focus_w "$E1"
+ev "$EXT._onAction('arrange-windows'); 'ok'" >/dev/null
+sleep 1.5
+focus_w "$E2"
+action untile-window
+check "one window released" "true false true" "$(tiled "$E1" "$E2" "$CALC")"
+ev "$EXT._onGrabBegin($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 100 556
+check "drop target: left edge of a tiled window" "true left" "$(ev "($EXT._dropTarget?.window === $E1) + ' ' + $EXT._dropTarget?.region")"
+ev "$EXT._onGrabEnd($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "inserted into the tiling" "true true true" "$(tiled "$E1" "$E2" "$CALC")"
+check "inserted window takes the left half of the cell" "0,32,480,1048" "$(rect_w "$E2")"
+check "the target keeps the other half" "480,32,480,1048" "$(rect_w "$E1")"
 
 echo "== preferences window"
 gnome-extensions prefs "$UUID"

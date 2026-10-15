@@ -23,6 +23,9 @@ GNOME 45-50 but those versions have not been tested.
   Layouts store proportions, so they work on any screen size.
 - **Drag to snap**: drag a window to an edge or corner, a translucent preview
   shows where it will land, release to snap.
+- **Linked edges**: snapped windows that touch share their edge; resizing one
+  resizes its neighbours. Drop a window near the edge of a snapped window to
+  split that window's area, or onto its middle to swap the two.
 - **Top bar menu**: a magnet icon in the top bar lists every action with its
   shortcut, toggles drag snapping and opens a help dialog with a map of the
   drag zones. It can be hidden in the preferences.
@@ -140,6 +143,32 @@ have to shrink below it, the divider stops there.
 
 Layouts can be renamed and deleted in the preferences, on the Layouts page.
 
+## Snapped windows
+
+Windows snapped to a zone (by shortcut, from the menu or by dragging) work
+together with the windows next to them:
+
+- **Linked edges**: two snapped windows that touch (one window gap apart)
+  share that edge. Dragging the edge of one moves the touching edges of the
+  others, live. A divider shared by several windows (a left half next to two
+  right quarters) moves all of them. No window shrinks below its minimum
+  size; the divider stops there.
+- **Dropping onto a window**: while dragging a window, move the pointer over
+  a snapped window. The quarter of that window along each edge splits it:
+  near its top edge the dragged window takes the top half of its area and
+  the window there keeps the bottom half; the same for the bottom, left and
+  right. The middle swaps the two windows. A preview shows the result. The
+  zones along the screen edges still win, and windows that are not snapped
+  are not drop targets.
+- A snapped window stops being linked when you move it away by hand, center
+  it, restore it or maximize it. Its neighbours stay where they are.
+
+Linked edges follow the same **Linked resizing** switch as tiling. Snapped
+windows do not fill the screen like a tiling: closing one leaves its space
+empty. Tiled windows (see below) can be dropped onto in the same way;
+dropping onto the edge of a tiled window adds the dragged window to the
+tiling.
+
 ## Drag zones
 
 While dragging a window, moving the pointer into one of the zones below shows
@@ -205,7 +234,7 @@ Open them with `just prefs` or from the Extensions app.
 | `show-preview`    | true    | Show the translucent preview while dragging                  |
 | `edge-threshold`  | 24      | Width in pixels of the band along the edges that triggers    |
 | `corner-size`     | 150     | Length in pixels of the corner zones along each edge         |
-| `linked-resizing` | true    | Tiled windows resize their neighbours                        |
+| `linked-resizing` | true    | Tiled and snapped windows resize their neighbours            |
 | `layouts`         | ''      | Saved layouts as JSON (see the schema for the format)        |
 | `last-layout`     | ''      | Name of the layout saved or restored last                    |
 
@@ -228,6 +257,8 @@ actions.js          Zone geometry and the list of actions, shared with prefs.js
 layouts.js          Layout geometry and JSON format, shared with prefs.js
 tiling.js           Split trees: arrange, resize, swap, remove (pure, unit tested)
 tilingManager.js    Tiling groups on the Shell side: signals, live resizing, swaps
+edges.js            Drop regions, splitting and shared edges of snapped windows (pure)
+edgeLinker.js       Live resizing of snapped windows that share an edge
 windowUtils.js      Window helpers shared by extension.js and tilingManager.js
 prefs.js            Preferences window (GTK4 + libadwaita), runs in a separate process
 metadata.json       UUID, name, supported Shell versions, schema id
@@ -235,7 +266,7 @@ stylesheet.css      Style of the drag preview, the menu and the help dialog
 icons/              Symbolic top bar icon
 schemas/            GSettings schema (must be compiled, see justfile)
 tests/smoke-test.sh Headless end-to-end test (just test)
-tests/tiling-test.js Unit tests of tiling.js and layouts.js (just unit)
+tests/tiling-test.js Unit tests of tiling.js, edges.js and layouts.js (just unit)
 justfile            install / zip / log / devkit / headless / test recipes
 ```
 
@@ -337,7 +368,8 @@ relative motion only: absolute motion ignores x in the headless backend), the
 top bar menu (shortcut labels, acting on the focused window, the drag switch,
 the help dialog, hiding the icon), tiling (arranging two and three windows,
 live linked resizing, swapping by keyboard and by dragging, zones taking a
-window out, closing a window), layouts (save, restore, launching a closed app
+window out, closing a window), snapped windows (linked edges, splitting and
+swapping by dropping onto a window, adding to a tiling), layouts (save, restore, launching a closed app
 into its cell, the save dialog, the menu of saved layouts), the preferences
 window, and that
 `org.gnome.mutter edge-tiling` is restored on disable. Each check prints

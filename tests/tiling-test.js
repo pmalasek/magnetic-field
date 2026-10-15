@@ -1,9 +1,11 @@
 // Unit tests for tiling.js and layouts.js. Run with `just unit`.
 
 import {
-    columnsTree, countLeaves, findSplitForEdge, leafIds, leafRects, mapLeaves,
-    neighbourLeaf, removeLeaf, resizeEdge, swapLeaves, treeFromRects,
+    columnsTree, countLeaves, findSplitForEdge, insertBeside, leafIds, leafRects,
+    mapLeaves, neighbourLeaf, removeLeaf, replaceLeafId, resizeEdge, swapLeaves,
+    treeFromRects,
 } from '../tiling.js';
+import {dropRegion, lineOf, lineRange, linkedLine, moveLine, splitRect} from '../edges.js';
 import {layoutWindowCount, parseLayouts, serializeLayouts} from '../layouts.js';
 
 let failures = 0;
@@ -125,6 +127,61 @@ check('from screen: pinwheel gives no tree', null,
     treeFromRects([item('A', 0, 0, 0.7, 0.3), item('B', 0.7, 0, 0.3, 0.7),
         item('C', 0.3, 0.7, 0.7, 0.3), item('D', 0, 0.3, 0.3, 0.7), item('E', 0.3, 0.3, 0.4, 0.4)]));
 check('from screen: one window', {A: [0, 0, 1, 1]}, fromRects([item('A', 0.2, 0.2, 0.3, 0.3)]));
+
+// insertBeside / replaceLeafId
+t = columnsTree(['A', 'B']);
+check('insert left of a window: halves of its cell',
+    {N: [0, 0, 0.25, 1], A: [0.25, 0, 0.25, 1], B: [0.5, 0, 0.5, 1]}, rects(insertBeside(t, 'A', 'N', 'left')));
+check('insert below a window',
+    {A: [0, 0, 0.5, 1], B: [0.5, 0, 0.5, 0.5], N: [0.5, 0.5, 0.5, 0.5]}, rects(insertBeside(t, 'B', 'N', 'bottom')));
+check('insert above a window', ['A', 'N', 'B'], leafIds(insertBeside(t, 'B', 'N', 'top')));
+check('replace a leaf id', ['A', 'X'], leafIds(replaceLeafId(t, 'B', 'X')));
+
+// edges.js
+const px = (x, y, width, height) => ({x, y, width, height});
+const R = r => [r.x, r.y, r.width, r.height].join(',');
+const cell = px(960, 32, 960, 1048);
+check('drop region: top quarter', 'top', dropRegion(cell, 1440, 100));
+check('drop region: left quarter', 'left', dropRegion(cell, 1000, 556));
+check('drop region: bottom quarter', 'bottom', dropRegion(cell, 1440, 1000));
+check('drop region: right quarter', 'right', dropRegion(cell, 1900, 556));
+check('drop region: corner goes to the nearest edge', 'left', dropRegion(cell, 970, 60));
+check('drop region: middle', 'center', dropRegion(cell, 1440, 556));
+check('split top', '960,32,960,524 960,556,960,524',
+    (s => `${R(s.inserted)} ${R(s.remaining)}`)(splitRect(cell, 'top', 0)));
+check('split right with gap', '1445,32,475,1048 960,32,475,1048',
+    (s => `${R(s.inserted)} ${R(s.remaining)}`)(splitRect(cell, 'right', 10)));
+check('split left, odd width', '0,0,50,10 50,0,51,10',
+    (s => `${R(s.inserted)} ${R(s.remaining)}`)(splitRect(px(0, 0, 101, 10), 'left', 0)));
+
+const halves = new Map([['L', px(0, 32, 960, 1048)], ['R', px(960, 32, 960, 1048)]]);
+let link = linkedLine(halves, 'L', 'right', 0);
+check('halves share the middle divider', '960 L R', `${link.line} ${link.before} ${link.after}`);
+check('the right half sees the same divider', '960 L R',
+    (l => `${l.line} ${l.before} ${l.after}`)(linkedLine(halves, 'R', 'left', 0)));
+check('screen edge: no divider', null, linkedLine(halves, 'L', 'left', 0));
+check('moving the divider: left window', '0,32,1200,1048', R(moveLine(halves.get('L'), link, 'L', 1200, 0)));
+check('moving the divider: right window', '1200,32,720,1048', R(moveLine(halves.get('R'), link, 'R', 1200, 0)));
+const gapped = new Map([['L', px(10, 42, 945, 1028)], ['R', px(965, 42, 945, 1028)]]);
+link = linkedLine(gapped, 'L', 'right', 10);
+check('with a gap: divider found', '955 L R', `${link.line} ${link.before} ${link.after}`);
+check('with a gap: right window keeps the gap', '1110,42,800,1028', R(moveLine(gapped.get('R'), link, 'R', 1100, 10)));
+const three = new Map([
+    ['L', px(0, 32, 960, 1048)], ['TR', px(960, 32, 960, 524)], ['BR', px(960, 556, 960, 524)],
+]);
+link = linkedLine(three, 'TR', 'left', 0);
+check('a divider shared by three windows moves all of them', 'L|BR,TR',
+    `${link.before}|${[...link.after].sort()}`);
+link = linkedLine(three, 'TR', 'bottom', 0);
+check('the horizontal divider on the right', 'TR|BR', `${link.before}|${link.after}`);
+check('windows that only touch at a corner are not linked', null,
+    linkedLine(new Map([['A', px(0, 0, 100, 100)], ['B', px(100, 100, 100, 100)]]), 'A', 'right', 0));
+check('a window further away is not linked', null,
+    linkedLine(new Map([['A', px(0, 0, 100, 100)], ['B', px(150, 0, 100, 100)]]), 'A', 'right', 0));
+check('line of a left edge with a gap', 950, lineOf(px(960, 0, 10, 10), 'left', 10));
+link = linkedLine(halves, 'L', 'right', 0);
+check('range: the right window keeps its minimum width', '-Infinity,1560',
+    lineRange(halves, link, new Map([['R', [360, 100]]]), 0, 'L').join(','));
 
 // layouts v2
 const saved = mapLeaves(columnsTree(['a.desktop', 'b.desktop', 'c']), leaf => ({

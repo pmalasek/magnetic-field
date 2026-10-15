@@ -33,6 +33,8 @@ import {
     cloneTree, columnsTree, leafRects, mapLeaves, removeLeaf, treeFromRects,
 } from './tiling.js';
 import {TilingManager} from './tilingManager.js';
+import {EdgeLinker} from './edgeLinker.js';
+import {dropRegion, splitRect} from './edges.js';
 import {
     MAXIMIZE_NOTIFY_SIGNALS, SNAPPABLE_TYPES, isMaximized, maximize, unmaximize,
 } from './windowUtils.js';
@@ -76,11 +78,13 @@ export default class MagneticFieldExtension extends Extension {
         this._dragMonitor = -1;
         this._pollId = 0;
 
-        this._swapTarget = null;
-
         this._layoutRestore = null;
         this._layoutDialog = null;
         this._tiling = new TilingManager(this, this._settings);
+        this._links = new EdgeLinker(this, this._settings);
+        this._dropTarget = null;
+        this._dragStartRect = null;
+        this._dragStartLinked = false;
 
         this._addKeybindings();
 
@@ -121,6 +125,8 @@ export default class MagneticFieldExtension extends Extension {
         // Tiling first, so cancelling a restore does not move windows.
         this._tiling.destroy();
         this._tiling = null;
+        this._links.destroy();
+        this._links = null;
         this._cancelRestore();
         this._layoutDialog?.destroy();
         this._layoutDialog = null;
@@ -244,6 +250,9 @@ export default class MagneticFieldExtension extends Extension {
         const gap = this._settings.get_int('window-gap');
         const entry = this._rememberOriginal(window);
         entry.zone = zoneName;
+        // A window snapped to a zone shares its edges with the snapped
+        // windows next to it (a maximized one has no neighbours).
+        entry.linked = zoneName !== 'snap-maximize';
 
         if (window.is_fullscreen())
             window.unmake_fullscreen();
@@ -288,6 +297,7 @@ export default class MagneticFieldExtension extends Extension {
 
         const entry = this._rememberOriginal(window);
         entry.zone = null;
+        entry.linked = false;
 
         if (window.is_fullscreen())
             window.unmake_fullscreen();
@@ -429,7 +439,8 @@ export default class MagneticFieldExtension extends Extension {
             return;
 
         if (RESIZE_OPS.includes(op)) {
-            this._tiling.beginResize(window);
+            if (!this._tiling.beginResize(window) && this._isLinked(window))
+                this._links.beginResize(window, this._linkNeighbours(window));
             return;
         }
         if (!MOVE_OPS.includes(op))
@@ -445,7 +456,9 @@ export default class MagneticFieldExtension extends Extension {
         this._dragWindow = window;
         this._dragZone = null;
         this._dragMonitor = -1;
-        this._swapTarget = null;
+        this._dropTarget = null;
+        this._dragStartRect = window.get_frame_rect();
+        this._dragStartLinked = this._isLinked(window);
         this._tiling.setDragging(window);
         this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, DRAG_POLL_MS, () => {
             this._updateDrag();
@@ -455,32 +468,33 @@ export default class MagneticFieldExtension extends Extension {
 
     _updateDrag() {
         const [x, y] = global.get_pointer();
-        // The zones along the edges win over swapping, which needs the
-        // pointer inside another tiled window.
+        // The zones along the screen edges win over dropping onto a window,
+        // which needs the pointer inside another snapped or tiled window.
         const hit = this._settings.get_boolean('drag-snapping') ? this._zoneAtPointer(x, y) : null;
 
         if (!hit) {
-            const cell = this._swapCellAt(x, y);
-            if (cell) {
-                if (this._swapTarget?.id !== cell.id) {
+            const target = this._dropTargetAt(x, y);
+            if (target) {
+                if (this._dropTarget?.window !== target.window ||
+                    this._dropTarget.region !== target.region) {
                     this._dragZone = null;
                     this._dragMonitor = -1;
-                    this._swapTarget = cell;
+                    this._dropTarget = target;
                     if (this._settings.get_boolean('show-preview'))
-                        this._showPreview(cell.rect);
+                        this._showPreview(target.preview);
                 }
                 return;
             }
-            if (this._dragZone || this._swapTarget) {
+            if (this._dragZone || this._dropTarget) {
                 this._dragZone = null;
                 this._dragMonitor = -1;
-                this._swapTarget = null;
+                this._dropTarget = null;
                 this._hidePreview();
             }
             return;
         }
 
-        this._swapTarget = null;
+        this._dropTarget = null;
 
         if (hit.zone === this._dragZone && hit.monitorIndex === this._dragMonitor)
             return;
@@ -491,23 +505,104 @@ export default class MagneticFieldExtension extends Extension {
             this._showPreview(this._zoneRect(hit.zone, hit.monitorIndex));
     }
 
-    // The cell of another window of the dragged window's tiling group under
-    // the pointer, or null.
-    _swapCellAt(x, y) {
-        const group = this._tiling.groupOf(this._dragWindow);
-        if (!group)
-            return null;
-        return this._tiling.cells(group).find(({window, rect}) =>
-            window !== this._dragWindow &&
-            x >= rect.x && x < rect.x + rect.width &&
-            y >= rect.y && y < rect.y + rect.height) ?? null;
+    // Whether a window shares its edges with its snapped neighbours.
+    _isLinked(window) {
+        return this._originals.get(window.get_id())?.linked === true &&
+            !this._tiling.isTiled(window);
+    }
+
+    // The other linked windows on the monitor and workspace of `window`.
+    _linkNeighbours(window) {
+        const workspace = window.get_workspace() ?? global.workspace_manager.get_active_workspace();
+        return this._layoutWindows(workspace).filter(w =>
+            w !== window && this._isLinked(w) && w.get_monitor() === window.get_monitor() &&
+            !isMaximized(w) && !w.is_fullscreen());
+    }
+
+    // The window under the pointer the dragged window can be dropped onto:
+    // the topmost window there, if it is snapped or tiled. Its region tells
+    // what a drop does: an edge splits the window, the center swaps.
+    _dropTargetAt(x, y) {
+        const workspace = global.workspace_manager.get_active_workspace();
+        const actors = global.get_window_actors();
+        for (let i = actors.length - 1; i >= 0; i--) {
+            const window = actors[i].meta_window;
+            if (window === this._dragWindow || !actors[i].visible || window.minimized ||
+                !this._isSnappable(window) || window.is_skip_taskbar() ||
+                !window.located_on_workspace(workspace))
+                continue;
+            const frame = window.get_frame_rect();
+            if (x < frame.x || x >= frame.x + frame.width || y < frame.y || y >= frame.y + frame.height)
+                continue;
+
+            // The topmost window under the pointer decides.
+            const tiled = this._tiling.isTiled(window);
+            if ((!tiled && !this._isLinked(window)) || isMaximized(window) || window.is_fullscreen())
+                return null;
+            const rect = tiled ? this._tiling.cellRect(window) : frame;
+            const region = dropRegion(rect, x, y);
+            const preview = region === 'center'
+                ? rect
+                : splitRect(rect, region, this._settings.get_int('window-gap')).inserted;
+            return {window, region, rect, preview};
+        }
+        return null;
+    }
+
+    // Put a window at `rect` as a snapped window that shares its edges.
+    _placeLinked(window, rect, original = undefined) {
+        const entry = this._rememberOriginal(window, original);
+        entry.zone = null;
+        entry.linked = true;
+        if (window.is_fullscreen())
+            window.unmake_fullscreen();
+        this._moveResize(window, rect);
+    }
+
+    // `window` was dragged from `startRect` and dropped onto `target`.
+    _dropOnWindow(window, target, startRect, startLinked) {
+        const other = target.window;
+        const targetTiled = this._tiling.isTiled(other);
+
+        if (target.region !== 'center') {
+            // An edge: the dragged window takes that half of the target.
+            if (targetTiled) {
+                this._tiling.insertBeside(other, window, target.region);
+                return;
+            }
+            this._tiling.release(window);
+            const halves = splitRect(other.get_frame_rect(), target.region,
+                this._settings.get_int('window-gap'));
+            this._placeLinked(other, halves.remaining);
+            this._placeLinked(window, halves.inserted, startRect);
+            return;
+        }
+
+        // The center: the two windows swap places.
+        const draggedTiled = this._tiling.isTiled(window);
+        const otherRect = other.get_frame_rect();
+        if (draggedTiled || targetTiled)
+            this._tiling.exchange(window, other);
+        if (!targetTiled)
+            this._placeLinked(window, otherRect, startRect);
+        if (!draggedTiled) {
+            if (startLinked) {
+                this._placeLinked(other, startRect);
+            } else {
+                // The dragged window was free, so is the one taking its place.
+                this._forget(other);
+                this._moveResize(other, startRect);
+            }
+        }
     }
 
     _onGrabEnd(window, op) {
         const dragWindow = this._dragWindow;
         const zone = this._dragZone;
         const monitorIndex = this._dragMonitor;
-        const swapTarget = this._swapTarget;
+        const dropTarget = this._dropTarget;
+        const startRect = this._dragStartRect;
+        const startLinked = this._dragStartLinked;
         this._stopDrag();
         this._tiling.setDragging(null);
 
@@ -518,6 +613,10 @@ export default class MagneticFieldExtension extends Extension {
             this._tiling.endResize();
             return;
         }
+        if (this._links.resizingWindow === window) {
+            this._links.endResize();
+            return;
+        }
 
         if (window === dragWindow && zone) {
             this._tiling.release(window);
@@ -525,9 +624,10 @@ export default class MagneticFieldExtension extends Extension {
             return;
         }
 
-        if (window === dragWindow && swapTarget?.window.get_compositor_private() &&
-            this._tiling.swap(window, swapTarget.window))
+        if (window === dragWindow && dropTarget?.window.get_compositor_private()) {
+            this._dropOnWindow(window, dropTarget, startRect, startLinked);
             return;
+        }
 
         const group = this._tiling.groupOf(window);
         if (group) {
@@ -556,7 +656,7 @@ export default class MagneticFieldExtension extends Extension {
         this._dragWindow = null;
         this._dragZone = null;
         this._dragMonitor = -1;
-        this._swapTarget = null;
+        this._dropTarget = null;
         this._hidePreview();
     }
 
@@ -735,7 +835,9 @@ export default class MagneticFieldExtension extends Extension {
     // geometry follows from the group's tree.
     _prepareTiledWindow(window, monitor) {
         // Keep Restore working: it puts the window back where it was before.
-        this._rememberOriginal(window).zone = null;
+        const entry = this._rememberOriginal(window);
+        entry.zone = null;
+        entry.linked = false;
         if (window.minimized)
             window.unminimize();
         if (window.is_fullscreen())
@@ -974,7 +1076,7 @@ export default class MagneticFieldExtension extends Extension {
 
     // ------------------------------------------------------ bookkeeping
 
-    _rememberOriginal(window) {
+    _rememberOriginal(window, rect = window.get_frame_rect()) {
         const id = window.get_id();
         let entry = this._originals.get(id);
         if (entry)
@@ -982,9 +1084,11 @@ export default class MagneticFieldExtension extends Extension {
 
         entry = {
             window,
-            rect: window.get_frame_rect(),
+            rect,
             maximized: isMaximized(window),
             zone: null,
+            // shares its edges with other snapped windows (edgeLinker.js)
+            linked: false,
             unmanagedId: window.connect('unmanaged', () => this._forget(window)),
         };
         this._originals.set(id, entry);

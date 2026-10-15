@@ -11,8 +11,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {rectToFraction} from './layouts.js';
 import {
-    cloneTree, findSplitForEdge, hasLeaf, leafIds, leafRects, mapLeaves,
-    neighbourLeaf, removeLeaf, resizeEdge, swapLeaves,
+    cloneTree, findSplitForEdge, hasLeaf, insertBeside, leafIds, leafRects,
+    mapLeaves, neighbourLeaf, removeLeaf, replaceLeafId, resizeEdge, swapLeaves,
 } from './tiling.js';
 import {MAXIMIZE_NOTIFY_SIGNALS, isMaximized} from './windowUtils.js';
 
@@ -165,10 +165,67 @@ export class TilingManager {
         if (this.isTiled(window))
             this.release(window);
 
+        this._fill(group, placeholderId, window);
+        this.apply(group, {final: true});
+        return true;
+    }
+
+    // Take a window out of its group but keep its leaf, under a placeholder
+    // id that is returned.
+    _detach(group, window) {
+        if (this._resize?.window === window)
+            this._cancelResize();
+        for (const id of group.signals.get(window) ?? [])
+            window.disconnect(id);
+        group.signals.delete(window);
         const id = window.get_id();
-        group.tree = mapLeaves(group.tree, leaf => (leaf.id === placeholderId ? {id} : leaf));
+        group.windows.delete(id);
+        group.lastRects.delete(id);
+        const placeholder = `swap-${id}`;
+        group.tree = replaceLeafId(group.tree, id, placeholder);
+        return placeholder;
+    }
+
+    _fill(group, placeholderId, window) {
+        const id = window.get_id();
+        group.tree = replaceLeafId(group.tree, placeholderId, id);
+        this._add(group, id, window);
+    }
+
+    // Put `window` next to the tiled window `target`, sharing its cell: the
+    // window gets the half at `edge`.
+    insertBeside(target, window, edge) {
+        if (this.isTiled(window))
+            this.release(window);
+        const group = this.groupOf(target);
+        if (!group)
+            return false;
+        const id = window.get_id();
+        group.tree = insertBeside(group.tree, target.get_id(), id, edge);
         this._add(group, id, window);
         this.apply(group, {final: true});
+        return true;
+    }
+
+    // Each window takes the other's place in the tiling. A window that was
+    // not tiled stays untiled: the other one ends up outside the tiling and
+    // the caller places it.
+    exchange(windowA, windowB) {
+        const groupA = this.groupOf(windowA);
+        const groupB = this.groupOf(windowB);
+        if (groupA && groupA === groupB)
+            return this.swap(windowA, windowB);
+
+        const placeholderA = groupA ? this._detach(groupA, windowA) : null;
+        const placeholderB = groupB ? this._detach(groupB, windowB) : null;
+        if (groupA)
+            this._fill(groupA, placeholderA, windowB);
+        if (groupB)
+            this._fill(groupB, placeholderB, windowA);
+        for (const group of [groupA, groupB]) {
+            if (group)
+                this.apply(group, {final: true});
+        }
         return true;
     }
 
@@ -231,6 +288,13 @@ export class TilingManager {
                 cells.push({id, window, rect: this._extension._fractionRect(frac, group.monitor)});
         }
         return cells;
+    }
+
+    // Pixel rect of a tiled window's cell, or null.
+    cellRect(window) {
+        const group = this.groupOf(window);
+        const frac = group ? leafRects(group.tree).get(window.get_id()) : null;
+        return frac ? this._extension._fractionRect(frac, group.monitor) : null;
     }
 
     // ---------------------------------------------------------- swapping

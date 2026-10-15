@@ -48,7 +48,7 @@
     <key name="linked-resizing" type="b">
       <default>true</default>
       <summary>Resize neighbouring windows together</summary>
-      <description>Windows placed by Arrange or by restoring a layout share their dividers: dragging the edge of one window resizes the windows next to it.</description>
+      <description>Snapped windows that touch, and windows placed by Arrange or by restoring a layout, share their edges: dragging the edge of one window resizes the windows next to it.</description>
     </key>
     <key name="last-layout" type="s">
       <default>''</default>

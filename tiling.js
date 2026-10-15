@@ -235,6 +235,25 @@ export function neighbourLeaf(tree, id, direction) {
     return best;
 }
 
+// Put leaf `newId` next to leaf `targetId`, sharing the target's cell: the
+// new leaf takes the half at `edge`.
+export function insertBeside(tree, targetId, newId, edge) {
+    const split = edge === 'left' || edge === 'right' ? 'v' : 'h';
+    const first = edge === 'left' || edge === 'top';
+    return mapLeaves(tree, leaf => {
+        if (leaf.id !== targetId)
+            return leaf;
+        return first
+            ? {split, ratio: 0.5, a: {id: newId}, b: {id: targetId}}
+            : {split, ratio: 0.5, a: {id: targetId}, b: {id: newId}};
+    });
+}
+
+// Give leaf `oldId` the id `newId`.
+export function replaceLeafId(tree, oldId, newId) {
+    return mapLeaves(tree, leaf => (leaf.id === oldId ? {id: newId} : leaf));
+}
+
 // A tree that reproduces windows placed by hand: items are {id, rect} with
 // rects as fractions of the monitor. The windows are split recursively by
 // a straight line that no window crosses (vertical lines first, so columns
