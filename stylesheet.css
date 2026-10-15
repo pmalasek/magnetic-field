@@ -17,12 +17,31 @@
     font-size: 0.9em;
 }
 
-/* Panel menu: help text */
-.magnetic-field-help {
-    width: 20em;
-    spacing: 8px;
+/* Help dialog */
+.magnetic-field-help-dialog .modal-dialog-content-box {
+    spacing: 12px;
+}
+
+.magnetic-field-help-dialog .message-dialog-content {
+    width: 400px;
 }
 
 .magnetic-field-help-heading {
     font-weight: bold;
+    padding-top: 12px;
+}
+
+.magnetic-field-help-text {
+    width: 400px;
+}
+
+.magnetic-field-zone-map-label {
+    font-weight: bold;
+    font-size: 0.9em;
+    text-align: center;
+}
+
+.magnetic-field-zone-map-hint {
+    font-size: 0.9em;
+    text-align: center;
 }

@@ -17,6 +17,9 @@ GNOME 45-50 but those versions have not been tested.
 - **Move a window to the next or previous display**, keeping its zone.
 - **Drag to snap**: drag a window to an edge or corner, a translucent preview
   shows where it will land, release to snap.
+- **Top bar menu**: a magnet icon in the top bar lists every action with its
+  shortcut, toggles drag snapping and opens a help dialog with a map of the
+  drag zones. It can be hidden in the preferences.
 - Optional **gap** between snapped windows.
 - All shortcuts and drag parameters are configurable in the preferences.
 
@@ -46,6 +49,18 @@ changed in the preferences.
 | Restore                  | Super+Ctrl+Backspace     |
 | Next display             | Super+Ctrl+Alt+Right     |
 | Previous display         | Super+Ctrl+Alt+Left      |
+
+## Top bar menu
+
+Clicking the magnet icon opens a menu with all actions grouped as in the
+preferences. Each item shows a miniature of the target area and its current
+shortcut. Picking an item moves the window that was focused when the menu was
+opened; items that cannot apply to that window (Restore before a snap, display
+moves with a single monitor) are greyed out or hidden. Below the actions:
+
+- **Drag to snap** switches drag snapping on and off,
+- **Help** opens a dialog with a map of the drag zones and a short how-to,
+- **Settings** opens the preferences.
 
 ## Drag zones
 
@@ -106,6 +121,7 @@ Open them with `just prefs` or from the Extensions app.
 
 | Key               | Default | Meaning                                                      |
 |-------------------|---------|--------------------------------------------------------------|
+| `show-indicator`  | true    | Show the magnet icon and its menu in the top bar             |
 | `window-gap`      | 0       | Pixels between snapped windows and the screen edges          |
 | `drag-snapping`   | true    | Enable snapping by dragging                                  |
 | `show-preview`    | true    | Show the translucent preview while dragging                  |
@@ -124,9 +140,13 @@ gsettings --schemadir schemas set org.gnome.shell.extensions.magnetic-field \
 
 ```
 extension.js        Shell-side code: keybindings, drag detection, window placement
+indicator.js        Top bar icon and its menu
+helpDialog.js       Help dialog with the drag zone map, opened from the menu
+actions.js          Zone geometry and the list of actions, shared with prefs.js
 prefs.js            Preferences window (GTK4 + libadwaita), runs in a separate process
 metadata.json       UUID, name, supported Shell versions, schema id
-stylesheet.css      Style of the drag preview
+stylesheet.css      Style of the drag preview, the menu and the help dialog
+icons/              Symbolic top bar icon
 schemas/            GSettings schema (must be compiled, see justfile)
 tests/smoke-test.sh Headless end-to-end test (just test)
 justfile            install / zip / log / devkit / headless / test recipes
@@ -210,8 +230,10 @@ it is a new process every time. After changing the schema: `just install`
 just test
 ```
 
-`tests/smoke-test.sh` installs nothing itself (`just test` runs `just install`
-first). It starts a headless Shell in its own D-Bus session, enables the
+`just test` builds the zip first, so the test also catches files missing from
+the package. `tests/smoke-test.sh` unpacks the zip into a temporary
+`XDG_DATA_HOME` (your installed copy in `~/.local/share` is neither used nor
+touched), starts a headless Shell in its own D-Bus session, enables the
 extension, opens GNOME Text Editor and Calculator and calls into the live
 extension object through `org.gnome.Shell.Eval`:
 
@@ -224,8 +246,9 @@ gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
 It checks the zone geometry, every keyboard action, a window with a minimum
 size, a simulated drag with a virtual pointer (`Clutter.VirtualInputDevice`,
 relative motion only: absolute motion ignores x in the headless backend), the
-preferences window, and that `org.gnome.mutter edge-tiling` is restored on
-disable. Each check prints
+top bar menu (shortcut labels, acting on the focused window, the drag switch,
+the help dialog, hiding the icon), the preferences window, and that
+`org.gnome.mutter edge-tiling` is restored on disable. Each check prints
 `PASS` or `FAIL`; the Shell log is left in `/tmp/magnetic-field-shell.log`.
 `Eval` only works with `--unsafe-mode`, never in a normal session.
 

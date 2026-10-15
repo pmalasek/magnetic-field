@@ -10,6 +10,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {ACTION_GROUPS, ZONES} from './actions.js';
+import {HelpDialog} from './helpDialog.js';
 
 // Actions without a zone get a stock icon or a drawn glyph of their own.
 const ACTION_ICONS = {
@@ -186,9 +187,10 @@ class MagneticFieldIndicator extends PanelMenu.Button {
             (item, state) => this._settings.set_boolean('drag-snapping', state));
         this.menu.addMenuItem(this._dragSwitch);
 
-        this.menu.addMenuItem(this._buildHelp());
-
-        this.menu.addAction(_('Settings'), () => this._extension.openPreferences());
+        this._helpDialog = null;
+        this.menu.addAction(_('Help'), () => this._showHelp(), 'help-about-symbolic');
+        this.menu.addAction(_('Settings'), () => this._extension.openPreferences(),
+            'preferences-system-symbolic');
 
         // Runs before the menu grabs the keyboard, so the focused window is
         // still the one the user was working with.
@@ -198,43 +200,6 @@ class MagneticFieldIndicator extends PanelMenu.Button {
             else
                 this._targetWindow = null;
         });
-    }
-
-    _buildHelp() {
-        const help = new PopupMenu.PopupSubMenuMenuItem(_('Help'), true);
-        help.icon.icon_name = 'help-about-symbolic';
-
-        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        const box = new St.BoxLayout({
-            style_class: 'magnetic-field-help',
-            x_expand: true,
-        });
-        // GNOME 48 replaced `vertical` with `orientation`.
-        if ('orientation' in box)
-            box.orientation = Clutter.Orientation.VERTICAL;
-        else
-            box.vertical = true;
-
-        const paragraph = (text, styleClass = null) => {
-            const label = new St.Label({text, style_class: styleClass});
-            label.clutter_text.line_wrap = true;
-            box.add_child(label);
-        };
-        paragraph(_('Pick an action above to move the window that was focused ' +
-            'when you opened this menu. The same actions work on the focused ' +
-            'window with the keyboard shortcuts shown next to them.'));
-        paragraph(_('Drag a window to the screen edge to snap it:'), 'magnetic-field-help-heading');
-        paragraph(_('• left or right edge: half\n' +
-            '• corner: quarter\n' +
-            '• top edge: maximize\n' +
-            '• bottom edge: left, center or right third'));
-        paragraph(_('Restore puts the window back to the size and position ' +
-            'it had before the first snap.'));
-        paragraph(_('Shortcuts, gaps and drag zones can be changed in Settings.'));
-
-        item.add_child(box);
-        help.menu.addMenuItem(item);
-        return help;
     }
 
     _sync() {
@@ -249,6 +214,21 @@ class MagneticFieldIndicator extends PanelMenu.Button {
 
         this._displaySection.actor.visible = global.display.get_n_monitors() > 1;
         this._dragSwitch.setToggleState(this._settings.get_boolean('drag-snapping'));
+    }
+
+    _showHelp() {
+        if (this._helpDialog)
+            return;
+        this._helpDialog = new HelpDialog(() => this._extension.openPreferences());
+        this._helpDialog.connect('destroy', () => {
+            this._helpDialog = null;
+        });
+        this._helpDialog.open();
+    }
+
+    _onDestroy() {
+        this._helpDialog?.destroy();
+        super._onDestroy();
     }
 
     _activate(name) {

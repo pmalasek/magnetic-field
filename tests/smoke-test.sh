@@ -3,13 +3,14 @@
 #
 # Starts a headless GNOME Shell (virtual 1920x1080 monitor, private D-Bus
 # session, in-memory GSettings, --unsafe-mode so org.gnome.Shell.Eval works),
-# enables the installed extension, opens two windows and drives the extension
-# through Eval. Nothing is displayed and your real session is not touched.
+# installs the extension zip into a temporary XDG_DATA_HOME, enables it, opens
+# two windows and drives the extension through Eval. Nothing is displayed and
+# neither your real session nor your installed extensions are touched.
 #
-# Usage:  just test            (installs first)
-#         tests/smoke-test.sh  (uses whatever is installed)
+# Usage:  just test                  (builds the zip first)
+#         tests/smoke-test.sh [ZIP]  (defaults to the zip in the project root)
 #
-# Requirements: gnome-shell, gnome-text-editor, gnome-calculator, gdbus.
+# Requirements: gnome-shell, gnome-text-editor, gnome-calculator, gdbus, unzip.
 # The Shell log is kept in $TMPDIR/magnetic-field-shell.log.
 
 set -u
@@ -21,8 +22,19 @@ if [ -z "${MF_INNER:-}" ]; then
     # Wayland socket paths are limited to 108 bytes, so keep the runtime dir short.
     RT=$(mktemp -d /tmp/mf-rt.XXXXXX) || exit 1
     chmod 700 "$RT"
-    MF_INNER=1 XDG_RUNTIME_DIR=$RT GSETTINGS_BACKEND=memory \
-        dbus-run-session -- "$0" "$@"
+    ZIP=${1:-$(dirname "$0")/../$UUID.shell-extension.zip}
+    DEST=$RT/data/gnome-shell/extensions/$UUID
+    mkdir -p "$DEST"
+    # Like `gnome-extensions install`, which also compiles the schema (the zip
+    # only carries the XML). That tool cannot move directories across file
+    # systems, so unpack by hand.
+    if ! unzip -q "$ZIP" -d "$DEST" || ! glib-compile-schemas "$DEST/schemas"; then
+        echo "cannot install $ZIP, run 'just zip' first" >&2
+        rm -rf "$RT"
+        exit 1
+    fi
+    MF_INNER=1 XDG_RUNTIME_DIR=$RT XDG_DATA_HOME=$RT/data GSETTINGS_BACKEND=memory \
+        dbus-run-session -- "$0"
     status=$?
     # the document and gvfs portals leave FUSE mounts behind
     fusermount3 -u "$RT/doc" 2>/dev/null
@@ -77,8 +89,24 @@ check_prefix() { # label expected-prefix actual
 EXT="Main.extensionManager.lookup('$UUID').stateObj"
 R='const R = r => [r.x, r.y, r.width, r.height].join(",");'
 focus() {
-    ev "const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === '$1'); if (w) w.focus(global.get_current_time()); w ? 'ok' : 'missing'"
-    sleep 0.5
+    # A window that maps late can take the focus back, so retry a few times.
+    for _ in 1 2 3 4 5; do
+        result=$(ev "const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === '$1'); if (w) Main.activateWindow(w); w ? 'ok' : 'missing'")
+        sleep 0.5
+        [ "$(ev "global.display.focus_window?.get_wm_class()")" = "$1" ] && break
+        result="focus is on $(ev "global.display.focus_window?.get_wm_class()")"
+    done
+    echo "$result"
+}
+# The extension state may take a moment to settle after enable/disable.
+ext_state() { # expected
+    for _ in $(seq 1 20); do
+        state=$(gnome-extensions info "$UUID" 2>/dev/null |
+            sed -n 's/.*: *\(ACTIVE\|ERROR\|INACTIVE\|OUT OF DATE\).*/\1/p')
+        [ "$state" = "$1" ] && break
+        sleep 0.5
+    done
+    echo "$state"
 }
 rect() {
     ev "$R const w = global.display.focus_window; R(w.get_frame_rect()) + (w.is_maximized() ? ' max' : '')"
@@ -91,7 +119,7 @@ action() {
 echo "== extension"
 gnome-extensions enable "$UUID"
 sleep 2
-check "state" "ACTIVE" "$(gnome-extensions info "$UUID" | sed -n 's/.*: *\(ACTIVE\|ERROR\|INACTIVE\|OUT OF DATE\).*/\1/p')"
+check "state" "ACTIVE" "$(ext_state ACTIVE)"
 check "edge tiling overridden" "mutter=false overridden=true previous=true" \
     "$(ev "'mutter=' + $EXT._mutterSettings.get_boolean('edge-tiling') + ' overridden=' + $EXT._settings.get_boolean('edge-tiling-overridden') + ' previous=' + $EXT._settings.get_boolean('edge-tiling-previous')")"
 
@@ -159,6 +187,7 @@ echo "== top bar indicator"
 IND="Main.panel.statusArea['$UUID']"
 check "indicator in the panel" "true" "$(ev "!!$IND")"
 check "editor focused" "ok" "$(focus org.gnome.TextEditor)"
+action snap-left-half
 ev "$IND.menu.open(false); 'ok'" >/dev/null
 sleep 0.5
 check "menu open" "true" "$(ev "$IND.menu.isOpen")"
@@ -167,14 +196,20 @@ check "shortcut label" "Super+Ctrl+←" "$(ev "$IND._items.get('snap-left-half')
 check "shortcut label with Alt" "Super+Ctrl+Alt+→" "$(ev "$IND._items.get('move-to-next-display').shortcut")"
 check "displays hidden with one monitor" "false" "$(ev "$IND._displaySection.actor.visible")"
 check "restore available after a snap" "true" "$(ev "$IND._items.get('restore-window').sensitive")"
-ev "const Clutter = imports.gi.Clutter; $IND._items.get('snap-left-half').activate(Clutter.get_current_event()); 'ok'" >/dev/null
+ev "const Clutter = imports.gi.Clutter; $IND._items.get('snap-right-half').activate(Clutter.get_current_event()); 'ok'" >/dev/null
 sleep 1.5
 check "menu closed after activation" "false" "$(ev "$IND.menu.isOpen")"
-check "menu item snapped left half" "0,32,960,1048" "$(rect)"
+check "menu item snapped right half" "960,32,960,1048" "$(rect)"
 ev "$IND.menu.open(false); $IND._dragSwitch.toggle(); $IND.menu.close(false); 'ok'" >/dev/null
 check "drag switch turns drag snapping off" "false" "$(ev "$EXT._settings.get_boolean('drag-snapping')")"
 ev "$IND.menu.open(false); $IND._dragSwitch.toggle(); $IND.menu.close(false); 'ok'" >/dev/null
 check "drag switch turns drag snapping on" "true" "$(ev "$EXT._settings.get_boolean('drag-snapping')")"
+ev "$IND._showHelp(); 'ok'" >/dev/null
+sleep 1
+check "help dialog open" "true" "$(ev "$IND._helpDialog?.state === 0")"
+ev "$IND._helpDialog.close(); 'ok'" >/dev/null
+sleep 1
+check "help dialog closed and destroyed" "false" "$(ev "!!$IND._helpDialog")"
 ev "$EXT._settings.set_boolean('show-indicator', false); 'ok'" >/dev/null
 check "indicator hidden by setting" "false" "$(ev "!!$IND")"
 ev "$EXT._settings.set_boolean('show-indicator', true); 'ok'" >/dev/null
@@ -188,7 +223,7 @@ check "prefs window open" "true" "$(ev "global.get_window_actors().some(a => a.m
 echo "== disable"
 gnome-extensions disable "$UUID"
 sleep 2
-check "state" "INACTIVE" "$(gnome-extensions info "$UUID" | sed -n 's/.*: *\(ACTIVE\|ERROR\|INACTIVE\|OUT OF DATE\).*/\1/p')"
+check "state" "INACTIVE" "$(ext_state INACTIVE)"
 check "indicator removed" "false" "$(ev "!!$IND")"
 check "edge tiling restored" "true" "$(ev "new Gio.Settings({schema_id: 'org.gnome.mutter'}).get_boolean('edge-tiling')")"
 

@@ -1,6 +1,6 @@
 uuid        := "magnetic-field@petr.malasek.gmail.com"
 install_dir := env("HOME") / ".local/share/gnome-shell/extensions" / uuid
-sources     := "extension.js prefs.js actions.js indicator.js metadata.json stylesheet.css"
+sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js metadata.json stylesheet.css"
 schema      := "schemas/org.gnome.shell.extensions.magnetic-field.gschema.xml"
 zip_file    := uuid + ".shell-extension.zip"
 
@@ -28,8 +28,9 @@ uninstall:
 # Build a zip suitable for extensions.gnome.org
 zip: schemas
     rm -f {{zip_file}}
-    gnome-extensions pack --force --extra-source=actions.js --extra-source=indicator.js \
-        --extra-source=icons --out-dir=. .
+    gnome-extensions pack --force --out-dir=. \
+        --extra-source=actions.js --extra-source=indicator.js \
+        --extra-source=helpDialog.js --extra-source=icons .
     @ls -l {{zip_file}}
 
 # Enable the extension
@@ -68,8 +69,8 @@ headless:
     GSETTINGS_BACKEND=memory dbus-run-session -- gnome-shell --headless --no-x11 \
         --virtual-monitor 1920x1080 --wayland --wayland-display=mf-dev --unsafe-mode
 
-# Install, then run the headless smoke test
-test: install
+# Build the zip, then run the headless smoke test on it
+test: zip
     tests/smoke-test.sh
 
 # Remove build artifacts
