@@ -115,6 +115,19 @@ action() {
     ev "$EXT._onAction('$1'); 'ok'" >/dev/null
     sleep 1.5
 }
+# Frame rect of the first window with the given WM class, or 'missing'.
+rect_of() {
+    ev "$R const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === '$1'); w ? R(w.get_frame_rect()) : 'missing'"
+}
+# Poll an Eval expression until it gives the expected value (up to 30 s).
+wait_for() { # label expected expression
+    for _ in $(seq 1 60); do
+        result=$(ev "$3")
+        [ "$result" = "$2" ] && break
+        sleep 0.5
+    done
+    check "$1" "$2" "$result"
+}
 
 echo "== extension"
 gnome-extensions enable "$UUID"
@@ -215,12 +228,71 @@ check "indicator hidden by setting" "false" "$(ev "!!$IND")"
 ev "$EXT._settings.set_boolean('show-indicator', true); 'ok'" >/dev/null
 check "indicator shown again" "true" "$(ev "!!$IND")"
 
+echo "== layouts"
+LAYOUT_NAMES="$EXT._getLayouts().map(l => l.name + ':' + l.windows.length).join(',')"
+check "editor focused" "ok" "$(focus org.gnome.TextEditor)"
+ev "$EXT._onAction('arrange-windows'); 'ok'" >/dev/null
+sleep 1.5
+check "arrange: focused window on the left" "0,32,960,1048" "$(rect_of org.gnome.TextEditor)"
+check "arrange: other window on the right" "960,32,960,1048" "$(rect_of org.gnome.Calculator)"
+check "save" "ok" "$(ev "$EXT._saveLayout('Dev1') ? 'ok' : 'empty'")"
+check "saved layouts" "Dev1:2" "$(ev "$LAYOUT_NAMES")"
+check "saved editor entry" "org.gnome.TextEditor.desktop 0 0,0,0.5,1 false" \
+    "$(ev "const e = $EXT._getLayouts()[0].windows.find(w => w.wmClass === 'org.gnome.TextEditor'); [e.app, e.monitor, [e.rect.x, e.rect.y, e.rect.w, e.rect.h].join(','), e.maximized].join(' ')")"
+check "last layout" "Dev1" "$(ev "$EXT._settings.get_string('last-layout')")"
+check "save again replaces" "Dev1:2" "$(ev "$EXT._saveLayout('Dev1'); $LAYOUT_NAMES")"
+action snap-bottom-right-quarter
+check "calculator focused" "ok" "$(focus org.gnome.Calculator)"
+action snap-top-left-quarter
+check "windows moved away" "960,556,960,524" "$(rect_of org.gnome.TextEditor)"
+check "restore" "true" "$(ev "$EXT._restoreLayout('Dev1')")"
+sleep 2
+check "restore: editor back on the left" "0,32,960,1048" "$(rect_of org.gnome.TextEditor)"
+check "restore: calculator back on the right" "960,32,960,1048" "$(rect_of org.gnome.Calculator)"
+check "nothing left to launch" "false" "$(ev "!!$EXT._layoutRestore")"
+check "unknown layout" "false" "$(ev "$EXT._restoreLayout('nope')")"
+ev "global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === 'org.gnome.Calculator').delete(global.get_current_time()); 'ok'" >/dev/null
+wait_for "calculator closed" "missing" "$R const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === 'org.gnome.Calculator'); w ? R(w.get_frame_rect()) : 'missing'"
+action snap-maximize
+check "restore launches the missing app" "true" "$(ev "$EXT._restoreLayout('Dev1')")"
+wait_for "launched calculator placed on the right" "960,32,960,1048" \
+    "$R const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === 'org.gnome.Calculator'); w ? R(w.get_frame_rect()) : 'missing'"
+wait_for "restore finished" "false" "!!$EXT._layoutRestore"
+check "restore: maximized editor back on the left" "0,32,960,1048" "$(rect_of org.gnome.TextEditor)"
+check "restore last layout available" "true" "$(ev "$EXT.canPerform('restore-last-layout', null)")"
+ev "$EXT._onAction('save-layout'); 'ok'" >/dev/null
+sleep 1
+check "save dialog open" "true" "$(ev "$EXT._layoutDialog?.state === 0")"
+check "save dialog prefilled" "Dev1" "$(ev "$EXT._layoutDialog._entry.get_text()")"
+ev "$EXT._layoutDialog._entry.set_text('  '); 'ok'" >/dev/null
+check "save disabled for a blank name" "false" "$(ev "$EXT._layoutDialog._saveButton.reactive")"
+ev "$EXT._layoutDialog._entry.set_text('Dev2'); $EXT._layoutDialog._entry.clutter_text.activate(); 'ok'" >/dev/null
+sleep 1
+check "save dialog closed by Enter" "false" "$(ev "!!$EXT._layoutDialog")"
+check "saved from the dialog" "Dev1:2,Dev2:2" "$(ev "$LAYOUT_NAMES")"
+ev "$IND.menu.open(false); 'ok'" >/dev/null
+sleep 0.5
+check "menu lists saved layouts" "Dev1,Dev2" "$(ev "$IND._savedSection._getMenuItems().map(i => i.label.text).join(',')")"
+check "arrange item enabled" "true" "$(ev "$IND._items.get('arrange-windows').sensitive")"
+ev "$IND.menu.close(false); 'ok'" >/dev/null
+check "delete" "true" "$(ev "$EXT._deleteLayout('Dev2')")"
+check "layouts after delete" "Dev1:2" "$(ev "$LAYOUT_NAMES")"
+ev "$EXT._settings.set_string('layouts', 'not json'); 'ok'" >/dev/null
+check "broken setting gives no layouts" "" "$(ev "$LAYOUT_NAMES")"
+ev "$IND.menu.open(false); 'ok'" >/dev/null
+sleep 0.5
+check "menu shows the empty state" "No layouts saved yet" "$(ev "$IND._savedSection._getMenuItems().map(i => i.label.text).join(',')")"
+ev "$IND.menu.close(false); 'ok'" >/dev/null
+check "restore last layout unavailable" "false" "$(ev "$EXT.canPerform('restore-last-layout', null)")"
+
 echo "== preferences window"
 gnome-extensions prefs "$UUID"
 sleep 5
 check "prefs window open" "true" "$(ev "global.get_window_actors().some(a => a.meta_window.get_title() === 'Magnetic Field')")"
 
 echo "== disable"
+# Windows the Shell launched are not children of this script; close them all.
+ev "global.get_window_actors().map(a => a.meta_window).filter(w => w.get_window_type() === Meta.WindowType.NORMAL && w.get_title() !== 'Magnetic Field').forEach(w => w.delete(global.get_current_time())); 'ok'" >/dev/null
 gnome-extensions disable "$UUID"
 sleep 2
 check "state" "INACTIVE" "$(ext_state INACTIVE)"

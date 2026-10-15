@@ -1,6 +1,6 @@
 uuid        := "magnetic-field@petr.malasek.gmail.com"
 install_dir := env("HOME") / ".local/share/gnome-shell/extensions" / uuid
-sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js metadata.json stylesheet.css"
+sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js layouts.js layoutDialog.js metadata.json stylesheet.css"
 schema      := "schemas/org.gnome.shell.extensions.magnetic-field.gschema.xml"
 zip_file    := uuid + ".shell-extension.zip"
 
@@ -30,7 +30,8 @@ zip: schemas
     rm -f {{zip_file}}
     gnome-extensions pack --force --out-dir=. \
         --extra-source=actions.js --extra-source=indicator.js \
-        --extra-source=helpDialog.js --extra-source=icons .
+        --extra-source=helpDialog.js --extra-source=layouts.js \
+        --extra-source=layoutDialog.js --extra-source=icons .
     @ls -l {{zip_file}}
 
 # Enable the extension

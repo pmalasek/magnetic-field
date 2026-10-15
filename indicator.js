@@ -9,7 +9,7 @@ import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js'
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {ACTION_GROUPS, ZONES} from './actions.js';
+import {ACTION_GROUPS, WINDOWLESS_ACTIONS, ZONES} from './actions.js';
 import {HelpDialog} from './helpDialog.js';
 
 // Actions without a zone get a stock icon or a drawn glyph of their own.
@@ -17,6 +17,9 @@ const ACTION_ICONS = {
     'restore-window': 'edit-undo-symbolic',
     'move-to-next-display': 'go-next-symbolic',
     'move-to-previous-display': 'go-previous-symbolic',
+    'arrange-windows': 'view-grid-symbolic',
+    'save-layout': 'document-save-symbolic',
+    'restore-last-layout': 'document-revert-symbolic',
 };
 const CENTER_GLYPH = {x: 1 / 4, y: 1 / 4, w: 1 / 2, h: 1 / 2};
 
@@ -165,14 +168,36 @@ class MagneticFieldIndicator extends PanelMenu.Button {
 
         this._items = new Map();
         this._displaySection = null;
+        this._layoutsItem = null;
+        this._savedSection = null;
         for (const group of ACTION_GROUPS) {
+            // The layout actions and the saved layouts share one submenu so
+            // the menu still fits on a 1080p screen.
+            const isLayouts = group.actions.some(([name]) => WINDOWLESS_ACTIONS.has(name));
             const section = new PopupMenu.PopupMenuSection();
-            section.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(_(group.title)));
+            let target = section;
+            if (isLayouts) {
+                section.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                this._layoutsItem = new PopupMenu.PopupSubMenuMenuItem(_(group.title), true);
+                this._layoutsItem.icon.icon_name = 'view-grid-symbolic';
+                section.addMenuItem(this._layoutsItem);
+                target = this._layoutsItem.menu;
+            } else {
+                section.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(_(group.title)));
+            }
+
             for (const [name, title] of group.actions) {
                 const item = new ActionMenuItem(name, _(title));
                 item.connect('activate', () => this._activate(name));
-                section.addMenuItem(item);
+                target.addMenuItem(item);
                 this._items.set(name, item);
+            }
+
+            if (isLayouts) {
+                // Filled from the settings each time the menu opens.
+                target.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(_('Saved layouts')));
+                this._savedSection = new PopupMenu.PopupMenuSection();
+                target.addMenuItem(this._savedSection);
             }
             if (group.actions.some(([name]) => name.startsWith('move-to-')))
                 this._displaySection = section;
@@ -213,7 +238,21 @@ class MagneticFieldIndicator extends PanelMenu.Button {
         }
 
         this._displaySection.actor.visible = global.display.get_n_monitors() > 1;
+        this._syncLayouts();
         this._dragSwitch.setToggleState(this._settings.get_boolean('drag-snapping'));
+    }
+
+    _syncLayouts() {
+        const section = this._savedSection;
+        section.removeAll();
+        const layouts = this._extension._getLayouts();
+        for (const {name} of layouts)
+            section.addAction(name, () => this._extension._restoreLayout(name));
+        if (layouts.length === 0) {
+            const empty = new PopupMenu.PopupMenuItem(_('No layouts saved yet'));
+            empty.setSensitive(false);
+            section.addMenuItem(empty);
+        }
     }
 
     _showHelp() {
@@ -232,6 +271,11 @@ class MagneticFieldIndicator extends PanelMenu.Button {
     }
 
     _activate(name) {
+        if (WINDOWLESS_ACTIONS.has(name)) {
+            this._extension._onAction(name, null);
+            return;
+        }
+
         const window = this._targetWindow;
         // The window may have gone away while the menu was open.
         if (!window?.get_compositor_private())

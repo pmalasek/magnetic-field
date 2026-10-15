@@ -161,6 +161,13 @@ class HelpDialog extends ModalDialog.ModalDialog {
             'before it was first snapped. Shortcuts, the gap between windows ' +
             'and the size of the drag zones can be changed in Settings.')));
 
+        this.contentLayout.add_child(this._heading(_('Layouts')));
+        this.contentLayout.add_child(this._paragraph(
+            _('Arrange windows tiles every window of the workspace into a grid. ' +
+            'Move and resize them as you like, then Save layout stores the apps ' +
+            'and their positions under a name. Picking the layout in the Layouts ' +
+            'submenu puts the windows back and launches the apps that are not running.')));
+
         this.addButton({
             label: _('Settings'),
             action: () => {

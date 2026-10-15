@@ -45,3 +45,16 @@
     font-size: 0.9em;
     text-align: center;
 }
+
+/* Save layout dialog */
+.magnetic-field-layout-dialog .modal-dialog-content-box {
+    spacing: 12px;
+}
+
+.magnetic-field-layout-dialog .message-dialog-content {
+    width: 400px;
+}
+
+.magnetic-field-layout-entry {
+    width: 400px;
+}

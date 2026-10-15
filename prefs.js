@@ -9,6 +9,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {ACTION_GROUPS} from './actions.js';
+import {parseLayouts, removeLayout, renameLayout, serializeLayouts} from './layouts.js';
 
 // Keys that make no sense as a bare shortcut (they are needed for navigation).
 const FORBIDDEN_KEYVALS = [
@@ -157,6 +158,7 @@ export default class MagneticFieldPreferences extends ExtensionPreferences {
         const settings = this.getSettings();
         window.add(this._buildGeneralPage(settings));
         window.add(this._buildShortcutsPage(settings));
+        window.add(this._buildLayoutsPage(window, settings));
     }
 
     _buildGeneralPage(settings) {
@@ -257,6 +259,88 @@ export default class MagneticFieldPreferences extends ExtensionPreferences {
             page.add(group);
         });
 
+        return page;
+    }
+
+    _buildLayoutsPage(window, settings) {
+        const page = new Adw.PreferencesPage({
+            title: _('Layouts'),
+            icon_name: 'view-grid-symbolic',
+        });
+        const group = new Adw.PreferencesGroup({
+            title: _('Saved layouts'),
+            description: _('Arrange your windows, then save the layout from the top bar ' +
+                'menu or with the Save layout shortcut. Restoring a layout reuses the ' +
+                'windows that are open and launches the missing apps. Edit a name and ' +
+                'press the check mark to rename a layout.'),
+        });
+        page.add(group);
+
+        const load = () => parseLayouts(settings.get_string('layouts'));
+        const store = data => settings.set_string('layouts', serializeLayouts(data));
+
+        let rows = [];
+        const rebuild = () => {
+            for (const row of rows)
+                group.remove(row);
+            rows = [];
+
+            const {layouts} = load();
+            if (layouts.length === 0) {
+                rows.push(new Adw.ActionRow({
+                    title: _('No layouts saved yet'),
+                    sensitive: false,
+                }));
+            }
+
+            for (const layout of layouts) {
+                const row = new Adw.EntryRow({
+                    title: _('Name'),
+                    text: layout.name,
+                    show_apply_button: true,
+                });
+                row.connect('apply', () => {
+                    const data = renameLayout(load(), layout.name, row.text);
+                    if (data) {
+                        if (settings.get_string('last-layout') === layout.name)
+                            settings.set_string('last-layout', row.text.trim());
+                        store(data);
+                    } else {
+                        row.text = layout.name;
+                        window.add_toast(new Adw.Toast({
+                            title: _('The name is empty or already used'),
+                        }));
+                    }
+                });
+
+                const count = layout.windows.length;
+                row.add_suffix(new Gtk.Label({
+                    label: count === 1 ? _('1 window') : _('%d windows').replace('%d', count),
+                    css_classes: ['dim-label'],
+                    valign: Gtk.Align.CENTER,
+                }));
+
+                const remove = new Gtk.Button({
+                    icon_name: 'user-trash-symbolic',
+                    valign: Gtk.Align.CENTER,
+                    css_classes: ['flat'],
+                    tooltip_text: _('Delete layout'),
+                });
+                remove.connect('clicked', () => store(removeLayout(load(), layout.name)));
+                row.add_suffix(remove);
+                rows.push(row);
+            }
+
+            for (const row of rows)
+                group.add(row);
+        };
+
+        const changedId = settings.connect('changed::layouts', rebuild);
+        window.connect('close-request', () => {
+            settings.disconnect(changedId);
+            return false;
+        });
+        rebuild();
         return page;
     }
 }

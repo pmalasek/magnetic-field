@@ -39,6 +39,17 @@
       <summary>Show a preview of the target area while dragging</summary>
     </key>
 
+    <!-- Layouts -->
+    <key name="layouts" type="s">
+      <default>''</default>
+      <summary>Saved window layouts</summary>
+      <description>JSON: {"version": 1, "layouts": [{"name", "windows": [{"app", "wmClass", "monitor", "rect": {"x", "y", "w", "h"}, "maximized"}]}]}. The rect is a fraction of the monitor work area without the window gap.</description>
+    </key>
+    <key name="last-layout" type="s">
+      <default>''</default>
+      <summary>Name of the layout saved or restored last</summary>
+    </key>
+
     <!-- Internal: remembers Mutter's edge-tiling value so it can be restored on disable -->
     <key name="edge-tiling-overridden" type="b">
       <default>false</default>
@@ -131,5 +142,18 @@
       <summary>Previous display</summary>
     </key>
 
+    <!-- Shortcuts: layouts -->
+    <key name="arrange-windows" type="as">
+      <default><![CDATA[['<Super><Control>a']]]></default>
+      <summary>Arrange all windows of the workspace in a grid</summary>
+    </key>
+    <key name="save-layout" type="as">
+      <default><![CDATA[['<Super><Control>s']]]></default>
+      <summary>Save the current window layout under a name</summary>
+    </key>
+    <key name="restore-last-layout" type="as">
+      <default><![CDATA[['<Super><Control>l']]]></default>
+      <summary>Restore the layout saved or restored last</summary>
+    </key>
   </schema>
 </schemalist>

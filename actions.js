@@ -72,6 +72,17 @@ export const ACTION_GROUPS = [
             ['move-to-previous-display', 'Previous display'],
         ],
     },
+    {
+        title: 'Layouts',
+        actions: [
+            ['arrange-windows', 'Arrange windows'],
+            ['save-layout', 'Save layout…'],
+            ['restore-last-layout', 'Restore last layout'],
+        ],
+    },
 ];
 
 export const ACTION_NAMES = ACTION_GROUPS.flatMap(group => group.actions.map(([name]) => name));
+
+// Actions that work on all windows of the workspace rather than on one.
+export const WINDOWLESS_ACTIONS = new Set(['arrange-windows', 'save-layout', 'restore-last-layout']);

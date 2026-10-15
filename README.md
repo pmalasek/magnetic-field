@@ -15,6 +15,10 @@ GNOME 45-50 but those versions have not been tested.
 - Snap to the **left / center / right third** or to **two thirds**.
 - **Maximize**, **center** and **restore** the previous size and position.
 - **Move a window to the next or previous display**, keeping its zone.
+- **Layouts**: arrange all windows of the workspace in a grid, rearrange them,
+  save the result under a name and restore it later. Restoring reuses the
+  windows that are open and launches the apps that are missing. Positions are
+  stored as fractions of the screen, so a layout works on any screen size.
 - **Drag to snap**: drag a window to an edge or corner, a translucent preview
   shows where it will land, release to snap.
 - **Top bar menu**: a magnet icon in the top bar lists every action with its
@@ -49,6 +53,9 @@ changed in the preferences.
 | Restore                  | Super+Ctrl+Backspace     |
 | Next display             | Super+Ctrl+Alt+Right     |
 | Previous display         | Super+Ctrl+Alt+Left      |
+| Arrange windows          | Super+Ctrl+A             |
+| Save layout              | Super+Ctrl+S             |
+| Restore last layout      | Super+Ctrl+L             |
 
 ## Top bar menu
 
@@ -58,9 +65,47 @@ shortcut. Picking an item moves the window that was focused when the menu was
 opened; items that cannot apply to that window (Restore before a snap, display
 moves with a single monitor) are greyed out or hidden. Below the actions:
 
+- **Layouts** opens a submenu with Arrange windows, Save layout and Restore
+  last layout, followed by the saved layouts; picking one restores it,
 - **Drag to snap** switches drag snapping on and off,
 - **Help** opens a dialog with a map of the drag zones and a short how-to,
 - **Settings** opens the preferences.
+
+## Layouts
+
+A layout is a named set of apps with the position and size of their windows.
+
+1. Open the apps you want, for example Visual Studio Code, Tilix and Firefox.
+2. **Arrange windows** (Super+Ctrl+A or the menu) tiles every window of the
+   current workspace into a grid, one grid per monitor, with the focused
+   window in the top left cell.
+3. Rearrange the windows any way you like: shortcuts, drag to snap, or by
+   resizing them by hand.
+4. **Save layout** (Super+Ctrl+S) asks for a name. Saving under an existing
+   name replaces that layout.
+5. Later, pick the layout in the **Layouts** submenu of the top bar menu, or press
+   Super+Ctrl+L for the layout saved or restored last.
+
+What gets saved: every normal window of the current workspace (dialogs,
+minimized windows and windows hidden from the taskbar are left out) with its
+app, monitor, position and size, and whether it was maximized. Position and
+size are fractions of the monitor work area without the window gap, so a
+layout keeps its proportions on another screen and with another gap.
+
+What restoring does:
+
+- Each saved window is paired with an open window of the same app on the
+  current workspace; every open window is used once. Paired windows are moved
+  into place (and unminimized).
+- Apps without a matching window are launched: the app itself if it is not
+  running, otherwise a new window of it. Their windows are placed as soon as
+  they appear. The extension waits at most 30 seconds.
+- A window that was on a monitor which is no longer connected goes to the
+  primary monitor.
+- Windows that do not belong to an installed app (no `.desktop` file) are
+  matched by their window class but cannot be launched.
+
+Layouts can be renamed and deleted in the preferences, on the Layouts page.
 
 ## Drag zones
 
@@ -127,6 +172,8 @@ Open them with `just prefs` or from the Extensions app.
 | `show-preview`    | true    | Show the translucent preview while dragging                  |
 | `edge-threshold`  | 24      | Width in pixels of the band along the edges that triggers    |
 | `corner-size`     | 150     | Length in pixels of the corner zones along each edge         |
+| `layouts`         | ''      | Saved layouts as JSON (see the schema for the format)        |
+| `last-layout`     | ''      | Name of the layout saved or restored last                    |
 
 The shortcut keys are listed in `schemas/*.gschema.xml`. You can also change
 them from the command line, for example:
@@ -142,7 +189,9 @@ gsettings --schemadir schemas set org.gnome.shell.extensions.magnetic-field \
 extension.js        Shell-side code: keybindings, drag detection, window placement
 indicator.js        Top bar icon and its menu
 helpDialog.js       Help dialog with the drag zone map, opened from the menu
+layoutDialog.js     Dialog that asks for the name of a layout to save
 actions.js          Zone geometry and the list of actions, shared with prefs.js
+layouts.js          Layout geometry, grid and JSON helpers, shared with prefs.js
 prefs.js            Preferences window (GTK4 + libadwaita), runs in a separate process
 metadata.json       UUID, name, supported Shell versions, schema id
 stylesheet.css      Style of the drag preview, the menu and the help dialog
@@ -247,7 +296,9 @@ It checks the zone geometry, every keyboard action, a window with a minimum
 size, a simulated drag with a virtual pointer (`Clutter.VirtualInputDevice`,
 relative motion only: absolute motion ignores x in the headless backend), the
 top bar menu (shortcut labels, acting on the focused window, the drag switch,
-the help dialog, hiding the icon), the preferences window, and that
+the help dialog, hiding the icon), layouts (arrange, save, restore, launching
+a closed app and placing its window, the save dialog, the menu of saved
+layouts), the preferences window, and that
 `org.gnome.mutter edge-tiling` is restored on disable. Each check prints
 `PASS` or `FAIL`; the Shell log is left in `/tmp/magnetic-field-shell.log`.
 `Eval` only works with `--unsafe-mode`, never in a normal session.
@@ -311,6 +362,12 @@ process name you will see is `gjs`, not `gnome-extensions`.
   the size (minimum size hints), and Mutter then keeps the old position too.
   `_moveResize()` re-sends the position once the client has answered; check
   the shell log if that does not happen.
+
+- **A layout restores but an app's window is not placed**: the app could not
+  open another window (single-instance apps that refuse a new window), it did
+  not appear within 30 seconds, or its window reports a different app than the
+  one saved. `gsettings get org.gnome.shell.extensions.magnetic-field layouts`
+  shows what was saved; the `app` field must name an installed `.desktop` file.
 
 ### Code style
 
