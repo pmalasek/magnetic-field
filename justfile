@@ -37,6 +37,11 @@ zip: schemas
         --extra-source=icons .
     @ls -l {{zip_file}}
 
+# Render the extensions.gnome.org icon (assets/, not part of the zip)
+icon:
+    rsvg-convert -w 256 -h 256 assets/magnetic-field.svg -o assets/magnetic-field-256.png
+    @ls -l assets/magnetic-field-256.png
+
 # Enable the extension
 enable:
     gnome-extensions enable {{uuid}}

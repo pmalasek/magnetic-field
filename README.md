@@ -264,6 +264,7 @@ prefs.js            Preferences window (GTK4 + libadwaita), runs in a separate p
 metadata.json       UUID, name, supported Shell versions, schema id
 stylesheet.css      Style of the drag preview, the menu and the help dialog
 icons/              Symbolic top bar icon
+assets/             Icon for extensions.gnome.org (SVG source and 256 px PNG, not packed)
 schemas/            GSettings schema (must be compiled, see justfile)
 tests/smoke-test.sh Headless end-to-end test (just test)
 tests/tiling-test.js Unit tests of tiling.js, edges.js and layouts.js (just unit)
@@ -464,3 +465,8 @@ timeout in `disable()`, and never keep Shell objects alive after that.
 4. Enable, run through the shortcuts and the drag zones by hand, disable, and
    confirm `gsettings get org.gnome.mutter edge-tiling` is back to its old
    value.
+5. Upload the zip at <https://extensions.gnome.org/upload/>. The icon is not
+   part of the zip: once the extension has a page there, log in, open the
+   page and click the puzzle icon left of the extension name to upload
+   `assets/magnetic-field-256.png` (regenerate it with `just icon` after
+   editing `assets/magnetic-field.svg`).
