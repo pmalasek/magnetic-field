@@ -80,6 +80,7 @@ export default class MagneticFieldExtension extends Extension {
 
         this._layoutRestore = null;
         this._layoutDialog = null;
+        this._layoutDialogDestroyId = 0;
         this._tiling = new TilingManager(this, this._settings);
         this._links = new EdgeLinker(this, this._settings);
         this._dropTarget = null;
@@ -128,8 +129,11 @@ export default class MagneticFieldExtension extends Extension {
         this._links.destroy();
         this._links = null;
         this._cancelRestore();
-        this._layoutDialog?.destroy();
-        this._layoutDialog = null;
+        if (this._layoutDialog) {
+            this._layoutDialog.disconnect(this._layoutDialogDestroyId);
+            this._layoutDialog.destroy();
+            this._layoutDialog = null;
+        }
 
         for (const [window, wait] of this._pendingWaits)
             this._cancelWait(window, wait);
@@ -893,7 +897,7 @@ export default class MagneticFieldExtension extends Extension {
                 if (!this._saveLayout(name))
                     Main.notify(_('Nothing to save'), _('There are no windows on this workspace.'));
             });
-        this._layoutDialog.connect('destroy', () => {
+        this._layoutDialogDestroyId = this._layoutDialog.connect('destroy', () => {
             this._layoutDialog = null;
         });
         this._layoutDialog.open();

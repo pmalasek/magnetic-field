@@ -21,39 +21,55 @@ const MAP_CORNER = 84;
 const ACCENT = [53 / 255, 132 / 255, 228 / 255];
 
 function zoneShapes() {
-    const W = MAP_WIDTH, H = MAP_HEIGHT, b = MAP_BAND, c = MAP_CORNER;
-    const rect = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    const width = MAP_WIDTH, height = MAP_HEIGHT, band = MAP_BAND, corner = MAP_CORNER;
+    const rectangle = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
     return [
-        // corners are L-shaped: they run `c` along both edges
-        {points: [[0, 0], [c, 0], [c, b], [b, b], [b, c], [0, c]], corner: true},
-        {points: [[W, 0], [W - c, 0], [W - c, b], [W - b, b], [W - b, c], [W, c]], corner: true},
-        {points: [[0, H], [c, H], [c, H - b], [b, H - b], [b, H - c], [0, H - c]], corner: true},
-        {points: [[W, H], [W - c, H], [W - c, H - b], [W - b, H - b], [W - b, H - c], [W, H - c]], corner: true},
-        {points: rect(c, 0, W - 2 * c, b)},
-        {points: rect(0, c, b, H - 2 * c)},
-        {points: rect(W - b, c, b, H - 2 * c)},
-        {points: rect(c, H - b, W / 3 - c, b)},
-        {points: rect(W / 3, H - b, W / 3, b)},
-        {points: rect(2 * W / 3, H - b, W / 3 - c, b)},
+        // corners are L-shaped: they run `corner` along both edges
+        {
+            points: [[0, 0], [corner, 0], [corner, band],
+                [band, band], [band, corner], [0, corner]],
+            corner: true,
+        },
+        {
+            points: [[width, 0], [width - corner, 0], [width - corner, band],
+                [width - band, band], [width - band, corner], [width, corner]],
+            corner: true,
+        },
+        {
+            points: [[0, height], [corner, height], [corner, height - band],
+                [band, height - band], [band, height - corner], [0, height - corner]],
+            corner: true,
+        },
+        {
+            points: [[width, height], [width - corner, height], [width - corner, height - band],
+                [width - band, height - band], [width - band, height - corner], [width, height - corner]],
+            corner: true,
+        },
+        {points: rectangle(corner, 0, width - 2 * corner, band)},
+        {points: rectangle(0, corner, band, height - 2 * corner)},
+        {points: rectangle(width - band, corner, band, height - 2 * corner)},
+        {points: rectangle(corner, height - band, width / 3 - corner, band)},
+        {points: rectangle(width / 3, height - band, width / 3, band)},
+        {points: rectangle(2 * width / 3, height - band, width / 3 - corner, band)},
     ];
 }
 
 function zoneLabels() {
-    const W = MAP_WIDTH, H = MAP_HEIGHT, b = MAP_BAND, c = MAP_CORNER;
+    const width = MAP_WIDTH, height = MAP_HEIGHT, band = MAP_BAND, corner = MAP_CORNER;
     const quarter = '¼';
     const half = '½';
     const third = '⅓';
     return [
-        [quarter, 0, 0, b, b],
-        [quarter, W - b, 0, b, b],
-        [quarter, 0, H - b, b, b],
-        [quarter, W - b, H - b, b, b],
-        [_('Maximize'), c, 0, W - 2 * c, b],
-        [half, 0, c, b, H - 2 * c],
-        [half, W - b, c, b, H - 2 * c],
-        [third, c, H - b, W / 3 - c, b],
-        [third, W / 3, H - b, W / 3, b],
-        [third, 2 * W / 3, H - b, W / 3 - c, b],
+        [quarter, 0, 0, band, band],
+        [quarter, width - band, 0, band, band],
+        [quarter, 0, height - band, band, band],
+        [quarter, width - band, height - band, band, band],
+        [_('Maximize'), corner, 0, width - 2 * corner, band],
+        [half, 0, corner, band, height - 2 * corner],
+        [half, width - band, corner, band, height - 2 * corner],
+        [third, corner, height - band, width / 3 - corner, band],
+        [third, width / 3, height - band, width / 3, band],
+        [third, 2 * width / 3, height - band, width / 3 - corner, band],
     ];
 }
 
@@ -78,10 +94,11 @@ class ZoneMap extends St.Widget {
         for (const [text, x, y, w, h] of zoneLabels())
             this._addLabel(text, x, y, w, h, scale);
 
-        const b = MAP_BAND + 12;
+        const inset = MAP_BAND + 12;
         this._addLabel(_('Drag a window by its title bar into one of the zones ' +
             'and release it there.'),
-        b, b, MAP_WIDTH - 2 * b, MAP_HEIGHT - 2 * b, scale, 'magnetic-field-zone-map-hint');
+        inset, inset, MAP_WIDTH - 2 * inset, MAP_HEIGHT - 2 * inset, scale,
+        'magnetic-field-zone-map-hint');
     }
 
     _addLabel(text, x, y, w, h, scale, styleClass = 'magnetic-field-zone-map-label') {

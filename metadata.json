@@ -2,9 +2,9 @@
   "uuid": "magnetic-field@petr.malasek.gmail.com",
   "name": "Magnetic Field",
   "description": "Magnet-style window management for GNOME Shell: snap windows to halves, quarters and thirds with keyboard shortcuts, or by dragging them to screen edges and corners.",
-  "version": 1,
+  "version": 1.01,
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "settings-schema": "org.gnome.shell.extensions.magnetic-field",
   "gettext-domain": "magnetic-field",
-  "url": ""
+  "url": "https://github.com/pmalasek/magnetic-field"
 }
