@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="magnetic-field">
+  <schema id="org.gnome.shell.extensions.magnetic-field" path="/org/gnome/shell/extensions/magnetic-field/">
+
+    <!-- Top bar -->
+    <key name="show-indicator" type="b">
+      <default>true</default>
+      <summary>Show the icon in the top bar</summary>
+      <description>The icon opens a menu with all actions, their shortcuts and a short help.</description>
+    </key>
+
+    <!-- Layout -->
+    <key name="window-gap" type="i">
+      <range min="0" max="64"/>
+      <default>0</default>
+      <summary>Gap between windows</summary>
+      <description>Space in pixels between snapped windows and the screen edges.</description>
+    </key>
+
+    <!-- Drag to snap -->
+    <key name="drag-snapping" type="b">
+      <default>true</default>
+      <summary>Snap windows by dragging them to screen edges</summary>
+    </key>
+    <key name="edge-threshold" type="i">
+      <range min="4" max="100"/>
+      <default>24</default>
+      <summary>Edge threshold</summary>
+      <description>How close (in pixels) the pointer has to be to a screen edge to trigger a snap zone.</description>
+    </key>
+    <key name="corner-size" type="i">
+      <range min="20" max="600"/>
+      <default>150</default>
+      <summary>Corner size</summary>
+      <description>Size in pixels of the corner zones along the edges that trigger quarter snapping.</description>
+    </key>
+    <key name="show-preview" type="b">
+      <default>true</default>
+      <summary>Show a preview of the target area while dragging</summary>
+    </key>
+
+    <!-- Internal: remembers Mutter's edge-tiling value so it can be restored on disable -->
+    <key name="edge-tiling-overridden" type="b">
+      <default>false</default>
+      <summary>Whether the extension has overridden org.gnome.mutter edge-tiling</summary>
+    </key>
+    <key name="edge-tiling-previous" type="b">
+      <default>true</default>
+      <summary>Value of org.gnome.mutter edge-tiling before the extension overrode it</summary>
+    </key>
+
+    <!-- Shortcuts: halves -->
+    <key name="snap-left-half" type="as">
+      <default><![CDATA[['<Super><Control>Left']]]></default>
+      <summary>Left half</summary>
+    </key>
+    <key name="snap-right-half" type="as">
+      <default><![CDATA[['<Super><Control>Right']]]></default>
+      <summary>Right half</summary>
+    </key>
+    <key name="snap-top-half" type="as">
+      <default><![CDATA[['<Super><Control>Up']]]></default>
+      <summary>Top half</summary>
+    </key>
+    <key name="snap-bottom-half" type="as">
+      <default><![CDATA[['<Super><Control>Down']]]></default>
+      <summary>Bottom half</summary>
+    </key>
+
+    <!-- Shortcuts: quarters -->
+    <key name="snap-top-left-quarter" type="as">
+      <default><![CDATA[['<Super><Control>u']]]></default>
+      <summary>Top left quarter</summary>
+    </key>
+    <key name="snap-top-right-quarter" type="as">
+      <default><![CDATA[['<Super><Control>i']]]></default>
+      <summary>Top right quarter</summary>
+    </key>
+    <key name="snap-bottom-left-quarter" type="as">
+      <default><![CDATA[['<Super><Control>j']]]></default>
+      <summary>Bottom left quarter</summary>
+    </key>
+    <key name="snap-bottom-right-quarter" type="as">
+      <default><![CDATA[['<Super><Control>k']]]></default>
+      <summary>Bottom right quarter</summary>
+    </key>
+
+    <!-- Shortcuts: thirds -->
+    <key name="snap-left-third" type="as">
+      <default><![CDATA[['<Super><Control>d']]]></default>
+      <summary>Left third</summary>
+    </key>
+    <key name="snap-center-third" type="as">
+      <default><![CDATA[['<Super><Control>f']]]></default>
+      <summary>Center third</summary>
+    </key>
+    <key name="snap-right-third" type="as">
+      <default><![CDATA[['<Super><Control>g']]]></default>
+      <summary>Right third</summary>
+    </key>
+    <key name="snap-left-two-thirds" type="as">
+      <default><![CDATA[['<Super><Control>e']]]></default>
+      <summary>Left two thirds</summary>
+    </key>
+    <key name="snap-right-two-thirds" type="as">
+      <default><![CDATA[['<Super><Control>t']]]></default>
+      <summary>Right two thirds</summary>
+    </key>
+
+    <!-- Shortcuts: window -->
+    <key name="snap-maximize" type="as">
+      <default><![CDATA[['<Super><Control>Return']]]></default>
+      <summary>Maximize</summary>
+    </key>
+    <key name="center-window" type="as">
+      <default><![CDATA[['<Super><Control>c']]]></default>
+      <summary>Center</summary>
+    </key>
+    <key name="restore-window" type="as">
+      <default><![CDATA[['<Super><Control>BackSpace']]]></default>
+      <summary>Restore</summary>
+    </key>
+
+    <!-- Shortcuts: displays -->
+    <key name="move-to-next-display" type="as">
+      <default><![CDATA[['<Super><Control><Alt>Right']]]></default>
+      <summary>Next display</summary>
+    </key>
+    <key name="move-to-previous-display" type="as">
+      <default><![CDATA[['<Super><Control><Alt>Left']]]></default>
+      <summary>Previous display</summary>
+    </key>
+
+  </schema>
+</schemalist>

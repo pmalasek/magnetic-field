@@ -1,0 +1,28 @@
+/* Preview of the target area shown while dragging a window to a snap zone */
+.magnetic-field-preview {
+    background-color: rgba(53, 132, 228, 0.25);
+    border: 2px solid rgba(53, 132, 228, 0.8);
+    border-radius: 12px;
+}
+
+/* Panel menu: miniature screen next to each snap action */
+.magnetic-field-zone-glyph {
+    width: 16px;
+    height: 16px;
+}
+
+/* Panel menu: shortcut shown at the end of each action */
+.magnetic-field-shortcut {
+    padding-left: 24px;
+    font-size: 0.9em;
+}
+
+/* Panel menu: help text */
+.magnetic-field-help {
+    width: 20em;
+    spacing: 8px;
+}
+
+.magnetic-field-help-heading {
+    font-weight: bold;
+}
