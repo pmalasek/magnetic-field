@@ -43,7 +43,12 @@
     <key name="layouts" type="s">
       <default>''</default>
       <summary>Saved window layouts</summary>
-      <description>JSON: {"version": 1, "layouts": [{"name", "windows": [{"app", "wmClass", "monitor", "rect": {"x", "y", "w", "h"}, "maximized"}]}]}. The rect is a fraction of the monitor work area without the window gap.</description>
+      <description>JSON: {"version": 2, "layouts": [{"name", "monitors": [{"monitor", "tree"}]}]}. A tree is either a split {"split": "v" or "h", "ratio", "a", "b"} or a window {"app", "wmClass"}.</description>
+    </key>
+    <key name="linked-resizing" type="b">
+      <default>true</default>
+      <summary>Resize neighbouring windows together</summary>
+      <description>Windows placed by Arrange or by restoring a layout share their dividers: dragging the edge of one window resizes the windows next to it.</description>
     </key>
     <key name="last-layout" type="s">
       <default>''</default>
@@ -154,6 +159,26 @@
     <key name="restore-last-layout" type="as">
       <default><![CDATA[['<Super><Control>l']]]></default>
       <summary>Restore the layout saved or restored last</summary>
+    </key>
+    <key name="swap-left" type="as">
+      <default><![CDATA[['<Super><Control><Shift>Left']]]></default>
+      <summary>Swap a tiled window with its neighbour on the left</summary>
+    </key>
+    <key name="swap-right" type="as">
+      <default><![CDATA[['<Super><Control><Shift>Right']]]></default>
+      <summary>Swap a tiled window with its neighbour on the right</summary>
+    </key>
+    <key name="swap-up" type="as">
+      <default><![CDATA[['<Super><Control><Shift>Up']]]></default>
+      <summary>Swap a tiled window with its neighbour above</summary>
+    </key>
+    <key name="swap-down" type="as">
+      <default><![CDATA[['<Super><Control><Shift>Down']]]></default>
+      <summary>Swap a tiled window with its neighbour below</summary>
+    </key>
+    <key name="untile-window" type="as">
+      <default><![CDATA[['<Super><Control><Shift>BackSpace']]]></default>
+      <summary>Release a window from tiling</summary>
     </key>
   </schema>
 </schemalist>

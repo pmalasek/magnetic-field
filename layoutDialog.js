@@ -21,7 +21,7 @@ class LayoutNameDialog extends ModalDialog.ModalDialog {
 
         const content = new Dialog.MessageDialogContent({
             title: _('Save layout'),
-            description: _('The apps and window positions of this workspace are ' +
+            description: _('The apps of this workspace and their proportions are ' +
                 'saved under this name. A layout with the same name is replaced.'),
         });
         this.contentLayout.add_child(content);

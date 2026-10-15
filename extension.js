@@ -4,9 +4,10 @@
 //  * keyboard shortcuts (see schemas/*.gschema.xml for the defaults)
 //  * dragging the window to a screen edge or corner
 //
-// On top of that, named layouts: arrange all windows of the workspace in a
-// grid, save their apps and positions, and restore them later, launching the
-// apps that are not running.
+// On top of that, tiling: Arrange divides a monitor between all windows of
+// the workspace, the windows then share their dividers (see tilingManager.js),
+// and the arrangement can be saved as a named layout and restored later,
+// launching the apps that are not running.
 //
 // All geometry is expressed as fractions of the monitor work area so the same
 // code serves the shortcuts and the drag zones.
@@ -21,13 +22,20 @@ import St from 'gi://St';
 import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {ACTION_NAMES, WINDOWLESS_ACTIONS, ZONES} from './actions.js';
+import {ACTION_NAMES, SWAP_DIRECTIONS, WINDOWLESS_ACTIONS, ZONES} from './actions.js';
 import {MagneticFieldIndicator} from './indicator.js';
 import {LayoutNameDialog} from './layoutDialog.js';
 import {
-    findLayout, fractionToRect, gridCells, parseLayouts, rectToFraction,
-    removeLayout, serializeLayouts, upsertLayout,
+    findLayout, fractionToRect, parseLayouts, rectToFraction, removeLayout,
+    serializeLayouts, upsertLayout,
 } from './layouts.js';
+import {
+    cloneTree, columnsTree, leafRects, mapLeaves, removeLeaf, treeFromRects,
+} from './tiling.js';
+import {TilingManager} from './tilingManager.js';
+import {
+    MAXIMIZE_NOTIFY_SIGNALS, SNAPPABLE_TYPES, isMaximized, maximize, unmaximize,
+} from './windowUtils.js';
 
 const PREVIEW_SHOW_MS = 150;
 const PREVIEW_HIDE_MS = 100;
@@ -36,45 +44,22 @@ const SIZE_WAIT_FALLBACK_MS = 500;
 // How long a restored layout waits for the windows of launched apps.
 const RESTORE_TIMEOUT_MS = 30000;
 
-const SNAPPABLE_TYPES = [
-    Meta.WindowType.NORMAL,
-    Meta.WindowType.DIALOG,
-    Meta.WindowType.MODAL_DIALOG,
-    Meta.WindowType.UTILITY,
-];
-
 const MOVE_OPS = [
     Meta.GrabOp.MOVING,
     Meta.GrabOp.MOVING_UNCONSTRAINED,
 ].filter(op => op !== undefined);
 
-// Property notifications that accompany a change of the maximized state
-// (Mutter 49+ has a single `maximized` property, older versions two).
-const MAXIMIZE_NOTIFY_SIGNALS = ['maximized', 'maximized-horizontally', 'maximized-vertically']
-    .filter(name => Meta.Window.find_property(name) !== null)
-    .map(name => `notify::${name}`);
-
-// Mutter 49 dropped the horizontal/vertical maximize flags. Older versions
-// still expose get_maximized() and expect the flags argument.
-function isMaximized(window) {
-    if (window.get_maximized)
-        return window.get_maximized() !== 0;
-    return window.is_maximized();
-}
-
-function maximize(window) {
-    if (window.get_maximized)
-        window.maximize(Meta.MaximizeFlags.BOTH);
-    else
-        window.maximize();
-}
-
-function unmaximize(window) {
-    if (window.get_maximized)
-        window.unmaximize(Meta.MaximizeFlags.BOTH);
-    else
-        window.unmaximize();
-}
+const RESIZE_OPS = [
+    Meta.GrabOp.RESIZING_NW,
+    Meta.GrabOp.RESIZING_N,
+    Meta.GrabOp.RESIZING_NE,
+    Meta.GrabOp.RESIZING_E,
+    Meta.GrabOp.RESIZING_SW,
+    Meta.GrabOp.RESIZING_S,
+    Meta.GrabOp.RESIZING_SE,
+    Meta.GrabOp.RESIZING_W,
+    Meta.GrabOp.KEYBOARD_RESIZING_UNKNOWN,
+].filter(op => op !== undefined);
 
 export default class MagneticFieldExtension extends Extension {
     enable() {
@@ -91,8 +76,11 @@ export default class MagneticFieldExtension extends Extension {
         this._dragMonitor = -1;
         this._pollId = 0;
 
+        this._swapTarget = null;
+
         this._layoutRestore = null;
         this._layoutDialog = null;
+        this._tiling = new TilingManager(this, this._settings);
 
         this._addKeybindings();
 
@@ -130,6 +118,9 @@ export default class MagneticFieldExtension extends Extension {
         this._stopDrag();
         this._destroyPreview();
 
+        // Tiling first, so cancelling a restore does not move windows.
+        this._tiling.destroy();
+        this._tiling = null;
         this._cancelRestore();
         this._layoutDialog?.destroy();
         this._layoutDialog = null;
@@ -178,6 +169,11 @@ export default class MagneticFieldExtension extends Extension {
         if (!window || !this._isSnappable(window))
             return false;
 
+        if (name in SWAP_DIRECTIONS)
+            return this._tiling.neighbour(window, SWAP_DIRECTIONS[name]) !== null;
+        if (name === 'untile-window')
+            return this._tiling.isTiled(window);
+
         if (name in ZONES)
             return window.resizeable;
 
@@ -202,6 +198,17 @@ export default class MagneticFieldExtension extends Extension {
             this._onLayoutAction(name);
             return;
         }
+
+        if (name in SWAP_DIRECTIONS) {
+            this._tiling.swapInDirection(window, SWAP_DIRECTIONS[name]);
+            return;
+        }
+
+        // Every other action takes the window out of its tiling group, and
+        // its neighbours take its space.
+        this._tiling.release(window);
+        if (name === 'untile-window')
+            return;
 
         if (name in ZONES) {
             this._applyZone(window, name, window.get_monitor());
@@ -418,17 +425,28 @@ export default class MagneticFieldExtension extends Extension {
     // --------------------------------------------------------------- drag
 
     _onGrabBegin(window, op) {
-        if (!this._settings.get_boolean('drag-snapping'))
+        if (!window || !this._isSnappable(window))
             return;
-        if (!window || !MOVE_OPS.includes(op))
+
+        if (RESIZE_OPS.includes(op)) {
+            this._tiling.beginResize(window);
             return;
-        if (!this._isSnappable(window) || !window.resizeable)
+        }
+        if (!MOVE_OPS.includes(op))
+            return;
+
+        // A tiled window can be dragged onto another one to swap them, even
+        // with drag snapping off.
+        const tiled = this._tiling.isTiled(window);
+        if (!tiled && (!this._settings.get_boolean('drag-snapping') || !window.resizeable))
             return;
 
         this._stopDrag();
         this._dragWindow = window;
         this._dragZone = null;
         this._dragMonitor = -1;
+        this._swapTarget = null;
+        this._tiling.setDragging(window);
         this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, DRAG_POLL_MS, () => {
             this._updateDrag();
             return GLib.SOURCE_CONTINUE;
@@ -437,16 +455,32 @@ export default class MagneticFieldExtension extends Extension {
 
     _updateDrag() {
         const [x, y] = global.get_pointer();
-        const hit = this._zoneAtPointer(x, y);
+        // The zones along the edges win over swapping, which needs the
+        // pointer inside another tiled window.
+        const hit = this._settings.get_boolean('drag-snapping') ? this._zoneAtPointer(x, y) : null;
 
         if (!hit) {
-            if (this._dragZone) {
+            const cell = this._swapCellAt(x, y);
+            if (cell) {
+                if (this._swapTarget?.id !== cell.id) {
+                    this._dragZone = null;
+                    this._dragMonitor = -1;
+                    this._swapTarget = cell;
+                    if (this._settings.get_boolean('show-preview'))
+                        this._showPreview(cell.rect);
+                }
+                return;
+            }
+            if (this._dragZone || this._swapTarget) {
                 this._dragZone = null;
                 this._dragMonitor = -1;
+                this._swapTarget = null;
                 this._hidePreview();
             }
             return;
         }
+
+        this._swapTarget = null;
 
         if (hit.zone === this._dragZone && hit.monitorIndex === this._dragMonitor)
             return;
@@ -457,22 +491,61 @@ export default class MagneticFieldExtension extends Extension {
             this._showPreview(this._zoneRect(hit.zone, hit.monitorIndex));
     }
 
-    _onGrabEnd(window, _op) {
+    // The cell of another window of the dragged window's tiling group under
+    // the pointer, or null.
+    _swapCellAt(x, y) {
+        const group = this._tiling.groupOf(this._dragWindow);
+        if (!group)
+            return null;
+        return this._tiling.cells(group).find(({window, rect}) =>
+            window !== this._dragWindow &&
+            x >= rect.x && x < rect.x + rect.width &&
+            y >= rect.y && y < rect.y + rect.height) ?? null;
+    }
+
+    _onGrabEnd(window, op) {
         const dragWindow = this._dragWindow;
         const zone = this._dragZone;
         const monitorIndex = this._dragMonitor;
+        const swapTarget = this._swapTarget;
         this._stopDrag();
+        this._tiling.setDragging(null);
 
         if (!window)
             return;
 
-        if (window === dragWindow && zone) {
-            this._applyZone(window, zone, monitorIndex);
-        } else {
-            // The user moved or resized the window by hand; the remembered
-            // geometry no longer describes anything worth restoring.
-            this._forget(window);
+        if (this._tiling.resizingWindow === window) {
+            this._tiling.endResize();
+            return;
         }
+
+        if (window === dragWindow && zone) {
+            this._tiling.release(window);
+            this._applyZone(window, zone, monitorIndex);
+            return;
+        }
+
+        if (window === dragWindow && swapTarget?.window.get_compositor_private() &&
+            this._tiling.swap(window, swapTarget.window))
+            return;
+
+        const group = this._tiling.groupOf(window);
+        if (group) {
+            if (RESIZE_OPS.includes(op) || window.get_monitor() !== group.monitor ||
+                window.get_workspace() !== group.workspace) {
+                // Resized with linked resizing off, or moved to another
+                // monitor or workspace: the window is on its own now.
+                this._tiling.release(window);
+            } else {
+                // Dropped somewhere else: back into its cell.
+                this._tiling.apply(group, {final: true});
+                return;
+            }
+        }
+
+        // The user moved or resized the window by hand; the remembered
+        // geometry no longer describes anything worth restoring.
+        this._forget(window);
     }
 
     _stopDrag() {
@@ -483,6 +556,7 @@ export default class MagneticFieldExtension extends Extension {
         this._dragWindow = null;
         this._dragZone = null;
         this._dragMonitor = -1;
+        this._swapTarget = null;
         this._hidePreview();
     }
 
@@ -592,10 +666,19 @@ export default class MagneticFieldExtension extends Extension {
         return entry.wmClass !== '' && entry.wmClass === key.wmClass;
     }
 
-    // Tile every window of the active workspace into a grid, one grid per
-    // monitor.
+    // Tile the windows of the active workspace, one group per monitor: the
+    // focused window gets the first column, the others follow in the order
+    // they have on screen (left to right, then top to bottom).
     _arrangeWindows() {
         const workspace = global.workspace_manager.get_active_workspace();
+        for (const [monitor, windows] of this._tileableWindows(workspace)) {
+            const map = new Map(this._arrangeOrder(windows).map(w => [w.get_id(), w]));
+            this._tiling.tile(workspace, monitor, columnsTree([...map.keys()]), map);
+        }
+    }
+
+    // Map monitor -> windows of the workspace that can be tiled.
+    _tileableWindows(workspace) {
         const byMonitor = new Map();
         for (const window of this._layoutWindows(workspace)) {
             if (!window.resizeable || !window.allows_move())
@@ -605,37 +688,84 @@ export default class MagneticFieldExtension extends Extension {
                 byMonitor.set(monitor, []);
             byMonitor.get(monitor).push(window);
         }
+        return byMonitor;
+    }
 
-        for (const [monitor, windows] of byMonitor) {
-            gridCells(windows.length).forEach((rect, i) =>
-                this._placeWindow(windows[i], {monitor, rect, maximized: false}));
+    // The focused window first, the others in the order they have on screen.
+    _arrangeOrder(windows) {
+        const focus = global.display.focus_window;
+        const others = windows.filter(w => w !== focus).sort((a, b) => {
+            const ra = a.get_frame_rect();
+            const rb = b.get_frame_rect();
+            return ra.x - rb.x || ra.y - rb.y;
+        });
+        return windows.includes(focus) ? [focus, ...others] : others;
+    }
+
+    // Tile the windows of every monitor that has windows outside a tiling,
+    // keeping them where they are: the split tree is worked out from their
+    // positions (tiled windows count with their cells). Windows that overlap
+    // too much for that are arranged instead.
+    _tileFromScreen(workspace) {
+        const gap = this._settings.get_int('window-gap');
+        for (const [monitor, windows] of this._tileableWindows(workspace)) {
+            const group = this._tiling.group(workspace, monitor);
+            if (group && windows.every(w => group.windows.get(w.get_id()) === w))
+                continue;
+
+            const cells = group ? leafRects(group.tree) : new Map();
+            const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor);
+            const items = windows.map(window => {
+                const id = window.get_id();
+                const rect = group?.windows.get(id) === window
+                    ? cells.get(id)
+                    : rectToFraction(isMaximized(window)
+                        ? workArea
+                        : window.get_frame_rect(), workArea, gap);
+                return {id, rect};
+            });
+            const tree = treeFromRects(items) ??
+                columnsTree(this._arrangeOrder(windows).map(w => w.get_id()));
+            this._tiling.tile(workspace, monitor, tree,
+                new Map(windows.map(w => [w.get_id(), w])));
         }
     }
 
-    // The windows of the active workspace as layout entries.
+    // Called by the tiling manager for every window it takes over; the
+    // geometry follows from the group's tree.
+    _prepareTiledWindow(window, monitor) {
+        // Keep Restore working: it puts the window back where it was before.
+        this._rememberOriginal(window).zone = null;
+        if (window.minimized)
+            window.unminimize();
+        if (window.is_fullscreen())
+            window.unmake_fullscreen();
+        if (window.get_monitor() !== monitor)
+            window.move_to_monitor(monitor);
+    }
+
+    // The tiling groups of the active workspace as saved monitors.
     _captureLayout() {
         const workspace = global.workspace_manager.get_active_workspace();
-        const gap = this._settings.get_int('window-gap');
-        return this._layoutWindows(workspace).map(window => {
-            const monitor = window.get_monitor();
-            const maximized = isMaximized(window);
-            const rect = maximized
-                ? {x: 0, y: 0, w: 1, h: 1}
-                : rectToFraction(window.get_frame_rect(),
-                    Main.layoutManager.getWorkAreaForMonitor(monitor), gap);
-            return {...this._windowKey(window), monitor, rect, maximized};
-        });
+        return this._tiling.groupsOn(workspace)
+            .map(group => ({
+                monitor: group.monitor,
+                tree: this._tiling.capture(group, window => this._windowKey(window)),
+            }))
+            .filter(m => m.tree);
     }
 
     // Save the windows of the active workspace under `name`, replacing a
-    // layout of the same name. Returns the layout, or null if there was
-    // nothing to save.
+    // layout of the same name. Windows that are not tiled yet are tiled
+    // where they are first. Returns the layout, or null if there are no
+    // windows.
     _saveLayout(name) {
-        const windows = this._captureLayout();
-        if (windows.length === 0)
+        this._tileFromScreen(global.workspace_manager.get_active_workspace());
+        const monitors = this._captureLayout();
+        if (monitors.length === 0)
             return null;
 
-        const layout = {name, windows};
+        const layout = {name, monitors};
         this._storeLayouts(upsertLayout(this._loadLayouts(), layout));
         this._settings.set_string('last-layout', name);
         return layout;
@@ -652,6 +782,10 @@ export default class MagneticFieldExtension extends Extension {
     _openSaveLayoutDialog() {
         if (this._layoutDialog)
             return;
+        if (this._tileableWindows(global.workspace_manager.get_active_workspace()).size === 0) {
+            Main.notify(_('Nothing to save'), _('There are no windows on this workspace.'));
+            return;
+        }
         this._layoutDialog = new LayoutNameDialog(this._settings.get_string('last-layout'),
             name => {
                 if (!this._saveLayout(name))
@@ -663,33 +797,10 @@ export default class MagneticFieldExtension extends Extension {
         this._layoutDialog.open();
     }
 
-    _placeWindow(window, entry) {
-        const monitor = entry.monitor < global.display.get_n_monitors()
-            ? entry.monitor
-            : Main.layoutManager.primaryIndex;
-
-        // Keep Restore working after a layout moved the window.
-        this._rememberOriginal(window).zone = null;
-
-        if (window.minimized)
-            window.unminimize();
-        if (window.is_fullscreen())
-            window.unmake_fullscreen();
-
-        if (entry.maximized) {
-            if (window.get_monitor() !== monitor)
-                window.move_to_monitor(monitor);
-            maximize(window);
-            return;
-        }
-
-        this._moveResize(window, this._fractionRect(entry.rect, monitor));
-    }
-
-    // Put the windows of the workspace where layout `name` has them. Windows
+    // Tile the windows of the workspace as layout `name` has them. Windows
     // of the same app are reused; apps without a window are launched and
-    // their windows placed once they appear. Returns false if there is no
-    // such layout.
+    // their windows fill their cells once they appear. Returns false if
+    // there is no such layout.
     _restoreLayout(name) {
         const layout = findLayout(this._loadLayouts(), name);
         if (!layout)
@@ -698,39 +809,61 @@ export default class MagneticFieldExtension extends Extension {
         this._cancelRestore();
         this._settings.set_string('last-layout', name);
 
+        // A monitor that is gone hands its windows to the primary monitor;
+        // two trees on one monitor share it side by side.
+        const monitorCount = global.display.get_n_monitors();
+        const trees = new Map();
+        for (const {monitor, tree} of layout.monitors) {
+            const target = monitor < monitorCount ? monitor : Main.layoutManager.primaryIndex;
+            const existing = trees.get(target);
+            trees.set(target, existing
+                ? {split: 'v', ratio: 0.5, a: existing, b: cloneTree(tree)}
+                : cloneTree(tree));
+        }
+
         const workspace = global.workspace_manager.get_active_workspace();
+        const appSystem = Shell.AppSystem.get_default();
         const candidates = this._layoutWindows(workspace, {includeMinimized: true})
+            .filter(window => window.resizeable && window.allows_move())
             .map(window => ({window, key: this._windowKey(window)}));
         const used = new Set();
         const missing = [];
-        for (const entry of layout.windows) {
-            const match = candidates.find(c => !used.has(c) && this._entryMatches(entry, c.key));
-            if (match) {
-                used.add(match);
-                this._placeWindow(match.window, entry);
-            } else {
-                missing.push(entry);
-            }
+        let placeholders = 0;
+
+        for (const [monitor, saved] of trees) {
+            const windows = new Map();
+            const dropped = [];
+            let tree = mapLeaves(saved, entry => {
+                const match = candidates.find(c => !used.has(c) && this._entryMatches(entry, c.key));
+                if (match) {
+                    used.add(match);
+                    const id = match.window.get_id();
+                    windows.set(id, match.window);
+                    return {id};
+                }
+                const id = `pending-${placeholders++}`;
+                const app = entry.app ? appSystem.lookup_app(entry.app) : null;
+                if (app) {
+                    missing.push({entry, app, monitor, id});
+                } else {
+                    console.debug(`Layout ${name}: cannot launch ${entry.app ?? entry.wmClass}`);
+                    dropped.push(id);
+                }
+                return {id};
+            });
+            for (const id of dropped)
+                tree = removeLeaf(tree, id);
+            if (tree)
+                this._tiling.tile(workspace, monitor, tree, windows);
         }
 
-        const appSystem = Shell.AppSystem.get_default();
-        const byApp = new Map();
-        for (const entry of missing) {
-            const app = entry.app ? appSystem.lookup_app(entry.app) : null;
-            if (!app) {
-                console.debug(`Layout ${name}: cannot launch ${entry.app ?? entry.wmClass}`);
-                continue;
-            }
-            if (!byApp.has(app))
-                byApp.set(app, []);
-            byApp.get(app).push(entry);
-        }
-        if (byApp.size === 0)
+        if (missing.length === 0)
             return true;
 
         const tracker = Shell.WindowTracker.get_default();
         const restore = {
-            entries: [...byApp.values()].flat(),
+            workspace,
+            entries: missing,
             fresh: new Set(),
             shownIds: new Map(),
             windowCreatedId: global.display.connect('window-created',
@@ -745,8 +878,11 @@ export default class MagneticFieldExtension extends Extension {
         };
         this._layoutRestore = restore;
 
-        for (const [app, entries] of byApp) {
-            let count = entries.length;
+        const byApp = new Map();
+        for (const item of missing)
+            byApp.set(item.app, (byApp.get(item.app) ?? 0) + 1);
+        for (const [app, total] of byApp) {
+            let count = total;
             if (app.get_n_windows() === 0) {
                 // Starts the app, or brings up its window if it runs without one.
                 app.activate();
@@ -770,7 +906,7 @@ export default class MagneticFieldExtension extends Extension {
         this._matchFreshWindows();
     }
 
-    // Pair windows created since the restore started with the entries still
+    // Pair windows created since the restore started with the cells still
     // waiting for one.
     _matchFreshWindows() {
         const restore = this._layoutRestore;
@@ -785,12 +921,12 @@ export default class MagneticFieldExtension extends Extension {
             const key = this._windowKey(window);
             if (!key.app)
                 continue;
-            const entry = restore.entries.find(e => this._entryMatches(e, key));
-            if (!entry)
+            const item = restore.entries.find(e => this._entryMatches(e.entry, key));
+            if (!item)
                 continue;
             restore.fresh.delete(window);
-            restore.entries.splice(restore.entries.indexOf(entry), 1);
-            this._placeNewWindow(window, entry);
+            restore.entries.splice(restore.entries.indexOf(item), 1);
+            this._placeNewWindow(window, item);
         }
 
         if (restore.entries.length === 0 && restore.shownIds.size === 0)
@@ -798,17 +934,18 @@ export default class MagneticFieldExtension extends Extension {
     }
 
     // A new window can only be moved reliably once it is on screen.
-    _placeNewWindow(window, entry) {
+    _placeNewWindow(window, item) {
         const restore = this._layoutRestore;
+        const place = () => this._tiling.fillPending(restore.workspace, item.monitor, item.id, window);
         if (window.get_compositor_private()?.visible) {
-            this._placeWindow(window, entry);
+            place();
             return;
         }
 
         const id = window.connect('shown', () => {
             window.disconnect(id);
             restore.shownIds.delete(window);
-            this._placeWindow(window, entry);
+            place();
             if (this._layoutRestore === restore &&
                 restore.entries.length === 0 && restore.shownIds.size === 0)
                 this._cancelRestore();
@@ -816,6 +953,8 @@ export default class MagneticFieldExtension extends Extension {
         restore.shownIds.set(window, id);
     }
 
+    // Stop waiting for launched apps; cells still empty are given to their
+    // neighbours.
     _cancelRestore() {
         const restore = this._layoutRestore;
         if (!restore)
@@ -830,6 +969,7 @@ export default class MagneticFieldExtension extends Extension {
         restore.fresh.clear();
         if (restore.timeoutId)
             GLib.source_remove(restore.timeoutId);
+        this._tiling?.prunePending();
     }
 
     // ------------------------------------------------------ bookkeeping
@@ -893,6 +1033,12 @@ export default class MagneticFieldExtension extends Extension {
             return GLib.SOURCE_REMOVE;
         });
         this._pendingWaits.set(window, wait);
+    }
+
+    _cancelPendingWait(window) {
+        const wait = this._pendingWaits?.get(window);
+        if (wait)
+            this._cancelWait(window, wait);
     }
 
     _cancelWait(window, wait) {

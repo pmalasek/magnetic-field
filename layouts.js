@@ -6,18 +6,16 @@
 //
 // The layouts live in the `layouts` setting as JSON:
 //
-//   {"version": 1, "layouts": [{"name": "Dev1", "windows": [
-//       {"app": "org.gnome.TextEditor.desktop",  // desktop id, null if unknown
-//        "wmClass": "org.gnome.TextEditor",
-//        "monitor": 0,
-//        "rect": {"x": 0, "y": 0, "w": 0.5, "h": 1},
-//        "maximized": false}]}]}
+//   {"version": 2, "layouts": [{"name": "Dev1", "monitors": [
+//       {"monitor": 0, "tree": <split tree, see tiling.js>}]}]}
 //
-// `rect` is a fraction of the monitor work area as if the window gap were 0,
-// so a layout keeps its proportions on another screen size and with another
-// gap: the gap is applied again when the layout is restored.
+// Leaves of a saved tree are {"app": desktop id or null, "wmClass": ...}.
+// The tree holds proportions only, so a layout keeps its shape on another
+// screen size and with another window gap.
 
-export const LAYOUTS_VERSION = 1;
+import {cloneTree, countLeaves, validTree} from './tiling.js';
+
+export const LAYOUTS_VERSION = 2;
 
 // Edges closer than this to 0 or 1 count as screen edges.
 const EDGE_EPS = 0.001;
@@ -91,38 +89,8 @@ export function rectToFraction(rect, workArea, gap) {
     return {x: round(x), y: round(y), w: round(right - x), h: round(bottom - y)};
 }
 
-// Cells of an automatic grid for n windows, row by row from the top left.
-// cols = ceil(sqrt(n)), rows = ceil(n / cols); the last row holds the rest
-// and its cells stretch to the full width (3 -> 2 + 1, 5 -> 3 + 2).
-export function gridCells(n) {
-    if (n <= 0)
-        return [];
-
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const cells = [];
-    for (let row = 0; row < rows; row++) {
-        const inRow = row < rows - 1 ? cols : n - cols * (rows - 1);
-        for (let col = 0; col < inRow; col++)
-            cells.push({x: col / inRow, y: row / rows, w: 1 / inRow, h: 1 / rows});
-    }
-    return cells;
-}
-
 function emptyLayouts() {
     return {version: LAYOUTS_VERSION, layouts: []};
-}
-
-function isFraction(value) {
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-
-function validWindow(entry) {
-    return entry && typeof entry === 'object' &&
-        (entry.app === null || typeof entry.app === 'string') &&
-        typeof entry.wmClass === 'string' &&
-        Number.isInteger(entry.monitor) &&
-        entry.rect && ['x', 'y', 'w', 'h'].every(k => isFraction(entry.rect[k]));
 }
 
 // Setting value -> {version, layouts}. Anything unreadable gives no layouts
@@ -142,22 +110,23 @@ export function parseLayouts(json) {
         return emptyLayouts();
 
     const layouts = data.layouts
-        .filter(l => l && typeof l.name === 'string' && Array.isArray(l.windows))
+        .filter(l => l && typeof l.name === 'string' && Array.isArray(l.monitors))
         .map(l => ({
             name: l.name,
-            windows: l.windows.filter(validWindow).map(w => ({
-                app: w.app,
-                wmClass: w.wmClass,
-                monitor: w.monitor,
-                rect: {x: w.rect.x, y: w.rect.y, w: w.rect.w, h: w.rect.h},
-                maximized: !!w.maximized,
-            })),
+            monitors: l.monitors
+                .filter(m => m && Number.isInteger(m.monitor) && m.monitor >= 0 && validTree(m.tree))
+                .map(m => ({monitor: m.monitor, tree: cloneTree(m.tree)})),
         }));
     return {version: LAYOUTS_VERSION, layouts};
 }
 
 export function serializeLayouts(data) {
     return JSON.stringify({version: LAYOUTS_VERSION, layouts: data.layouts});
+}
+
+// Number of windows in a layout.
+export function layoutWindowCount(layout) {
+    return layout.monitors.reduce((sum, m) => sum + countLeaves(m.tree), 0);
 }
 
 export function findLayout(data, name) {

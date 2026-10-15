@@ -115,10 +115,6 @@ action() {
     ev "$EXT._onAction('$1'); 'ok'" >/dev/null
     sleep 1.5
 }
-# Frame rect of the first window with the given WM class, or 'missing'.
-rect_of() {
-    ev "$R const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === '$1'); w ? R(w.get_frame_rect()) : 'missing'"
-}
 # Poll an Eval expression until it gives the expected value (up to 30 s).
 wait_for() { # label expected expression
     for _ in $(seq 1 60); do
@@ -228,38 +224,160 @@ check "indicator hidden by setting" "false" "$(ev "!!$IND")"
 ev "$EXT._settings.set_boolean('show-indicator', true); 'ok'" >/dev/null
 check "indicator shown again" "true" "$(ev "!!$IND")"
 
-echo "== layouts"
-LAYOUT_NAMES="$EXT._getLayouts().map(l => l.name + ':' + l.windows.length).join(',')"
-check "editor focused" "ok" "$(focus org.gnome.TextEditor)"
+echo "== tiling"
+WINS="global.get_window_actors().map(a => a.meta_window)"
+# JS expression for the n-th window (0-based, in creation order) of a class.
+win() {
+    echo "($WINS.filter(x => x.get_wm_class() === '$1').sort((a, b) => a.get_stable_sequence() - b.get_stable_sequence())[$2])"
+}
+E1=$(win org.gnome.TextEditor 0)
+E2=$(win org.gnome.TextEditor 1)
+CALC=$(win org.gnome.Calculator 0)
+rect_w() { # JS window expression
+    ev "$R const w = $1; w ? R(w.get_frame_rect()) : 'missing'"
+}
+focus_w() { # JS window expression
+    ev "Main.activateWindow($1); 'ok'" >/dev/null
+    sleep 0.5
+}
+tiled() { # JS window expressions
+    list=$(printf '%s,' "$@")
+    ev "[$list].map(w => $EXT._tiling.isTiled(w)).join(' ')"
+}
+LAYOUT_NAMES="$EXT._getLayouts().map(l => l.name + ':' + (JSON.stringify(l.monitors).match(/wmClass/g) || []).length).join(',')"
+
+focus_w "$E1"
 ev "$EXT._onAction('arrange-windows'); 'ok'" >/dev/null
 sleep 1.5
-check "arrange: focused window on the left" "0,32,960,1048" "$(rect_of org.gnome.TextEditor)"
-check "arrange: other window on the right" "960,32,960,1048" "$(rect_of org.gnome.Calculator)"
+check "arrange 2: focused window on the left" "0,32,960,1048" "$(rect_w "$E1")"
+check "arrange 2: other window on the right" "960,32,960,1048" "$(rect_w "$CALC")"
+check "arranged windows are tiled" "true true" "$(tiled "$E1" "$CALC")"
+
+echo "== layouts: save and restore"
 check "save" "ok" "$(ev "$EXT._saveLayout('Dev1') ? 'ok' : 'empty'")"
 check "saved layouts" "Dev1:2" "$(ev "$LAYOUT_NAMES")"
-check "saved editor entry" "org.gnome.TextEditor.desktop 0 0,0,0.5,1 false" \
-    "$(ev "const e = $EXT._getLayouts()[0].windows.find(w => w.wmClass === 'org.gnome.TextEditor'); [e.app, e.monitor, [e.rect.x, e.rect.y, e.rect.w, e.rect.h].join(','), e.maximized].join(' ')")"
+check "saved tree" "2 v 0.5 org.gnome.TextEditor.desktop org.gnome.Calculator" \
+    "$(ev "const d = JSON.parse($EXT._settings.get_string('layouts')); const t = d.layouts[0].monitors[0].tree; [d.version, t.split, t.ratio, t.a.app, t.b.wmClass].join(' ')")"
 check "last layout" "Dev1" "$(ev "$EXT._settings.get_string('last-layout')")"
 check "save again replaces" "Dev1:2" "$(ev "$EXT._saveLayout('Dev1'); $LAYOUT_NAMES")"
+focus_w "$E1"
 action snap-bottom-right-quarter
-check "calculator focused" "ok" "$(focus org.gnome.Calculator)"
-action snap-top-left-quarter
-check "windows moved away" "960,556,960,524" "$(rect_of org.gnome.TextEditor)"
+check "a zone takes the window out of the tiling" "false true" "$(tiled "$E1" "$CALC")"
+check "the neighbour takes its space" "0,32,1920,1048" "$(rect_w "$CALC")"
+check "the window is in the zone" "960,556,960,524" "$(rect_w "$E1")"
 check "restore" "true" "$(ev "$EXT._restoreLayout('Dev1')")"
 sleep 2
-check "restore: editor back on the left" "0,32,960,1048" "$(rect_of org.gnome.TextEditor)"
-check "restore: calculator back on the right" "960,32,960,1048" "$(rect_of org.gnome.Calculator)"
+check "restore: editor back on the left" "0,32,960,1048" "$(rect_w "$E1")"
+check "restore: calculator back on the right" "960,32,960,1048" "$(rect_w "$CALC")"
+check "restore: tiled again" "true true" "$(tiled "$E1" "$CALC")"
 check "nothing left to launch" "false" "$(ev "!!$EXT._layoutRestore")"
 check "unknown layout" "false" "$(ev "$EXT._restoreLayout('nope')")"
-ev "global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === 'org.gnome.Calculator').delete(global.get_current_time()); 'ok'" >/dev/null
-wait_for "calculator closed" "missing" "$R const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === 'org.gnome.Calculator'); w ? R(w.get_frame_rect()) : 'missing'"
+ev "$CALC.delete(global.get_current_time()); 'ok'" >/dev/null
+wait_for "calculator closed" "missing" "$R const w = $CALC; w ? R(w.get_frame_rect()) : 'missing'"
+check "the last window fills the screen" "0,32,1920,1048" "$(rect_w "$E1")"
+focus_w "$E1"
 action snap-maximize
+check "maximizing takes the window out" "false" "$(tiled "$E1")"
 check "restore launches the missing app" "true" "$(ev "$EXT._restoreLayout('Dev1')")"
-wait_for "launched calculator placed on the right" "960,32,960,1048" \
-    "$R const w = global.get_window_actors().map(a => a.meta_window).find(x => x.get_wm_class() === 'org.gnome.Calculator'); w ? R(w.get_frame_rect()) : 'missing'"
+wait_for "launched calculator fills its cell" "960,32,960,1048" "$R const w = $CALC; w ? R(w.get_frame_rect()) : 'missing'"
 wait_for "restore finished" "false" "!!$EXT._layoutRestore"
-check "restore: maximized editor back on the left" "0,32,960,1048" "$(rect_of org.gnome.TextEditor)"
-check "restore last layout available" "true" "$(ev "$EXT.canPerform('restore-last-layout', null)")"
+check "maximized editor back on the left" "0,32,960,1048" "$(rect_w "$E1")"
+check "both tiled after the launch" "true true" "$(tiled "$E1" "$CALC")"
+
+echo "== tiling: three windows"
+ev "Shell.AppSystem.get_default().lookup_app('org.gnome.TextEditor.desktop').open_new_window(-1); 'ok'" >/dev/null
+wait_for "second editor window" "2" "$WINS.filter(x => x.get_wm_class() === 'org.gnome.TextEditor').length"
+sleep 1
+check "a new window is not tiled" "false" "$(tiled "$E2")"
+focus_w "$E2"
+action snap-top-left-quarter
+focus_w "$E1"
+ev "$EXT._onAction('arrange-windows'); 'ok'" >/dev/null
+sleep 1.5
+check "arrange 3: focused window alone on the left" "0,32,960,1048" "$(rect_w "$E1")"
+check "arrange 3: top right" "960,32,960,524" "$(rect_w "$E2")"
+check_prefix "arrange 3: bottom right" "960,556,960," "$(rect_w "$CALC")"
+
+echo "== tiling: linked resizing"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.RESIZING_E); $E1.move_resize_frame(true, 0, 32, 1200, 1048); 'ok'" >/dev/null
+sleep 1
+check "live: top right follows the divider" "1200,32,720,524" "$(rect_w "$E2")"
+check_prefix "live: bottom right follows the divider" "1200,556,720," "$(rect_w "$CALC")"
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.RESIZING_E); 'ok'" >/dev/null
+sleep 1.5
+check "divider ratio" "0.625" "$(ev "$EXT._tiling.groupOf($E1).tree.ratio")"
+check "resized window fills its cell" "0,32,1200,1048" "$(rect_w "$E1")"
+check "still tiled" "true true true" "$(tiled "$E1" "$E2" "$CALC")"
+ev "$EXT._onGrabBegin($E2, Meta.GrabOp.RESIZING_S); $E2.move_resize_frame(true, 1200, 32, 720, 400); 'ok'" >/dev/null
+sleep 1
+ev "$EXT._onGrabEnd($E2, Meta.GrabOp.RESIZING_S); 'ok'" >/dev/null
+sleep 1.5
+check "bottom edge: window above shrinks" "1200,32,720,400" "$(rect_w "$E2")"
+check "bottom edge: window below grows" "1200,432,720,648" "$(rect_w "$CALC")"
+check "left column untouched" "0,32,1200,1048" "$(rect_w "$E1")"
+
+echo "== tiling: swapping"
+focus_w "$E1"
+check "swap right available" "true" "$(ev "$EXT.canPerform('swap-right', $E1)")"
+check "nothing to swap with on the left" "false" "$(ev "$EXT.canPerform('swap-left', $E1)")"
+action swap-right
+check "swap right: the neighbour sharing most of the edge" "1200,432,720,648" "$(rect_w "$E1")"
+check "swap right: calculator in the left column" "0,32,1200,1048" "$(rect_w "$CALC")"
+action swap-left
+check "swap left: back" "0,32,1200,1048" "$(rect_w "$E1")"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 1560 232
+check "drag onto another window: swap target" "true" "$(ev "$EXT._swapTarget?.window === $E2")"
+check "drag onto another window: preview" "true" "$(ev "$EXT._preview.visible")"
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "dropped: windows swapped" "1200,32,720,400" "$(rect_w "$E1")"
+check "dropped: other window in the dragged one's cell" "0,32,1200,1048" "$(rect_w "$E2")"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 1560 900
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "dropped onto the calculator" "1200,432,720,648" "$(rect_w "$E1")"
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 1300 300
+check "over another window: swap target" "true" "$(ev "!!$EXT._swapTarget")"
+ev "$E1.move_frame(true, 700, 300); 'ok'" >/dev/null
+move_pointer 1500 800
+check "over its own cell: no swap target" "false" "$(ev "!!$EXT._swapTarget")"
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "dropped onto its own cell after moving: back in place" "1200,432,720,648" "$(rect_w "$E1")"
+ev "$EXT._onGrabBegin($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 3 540
+check "zones win over swapping" "snap-left-half null" "$(ev "$EXT._dragZone + ' ' + ($EXT._swapTarget?.id ?? null)")"
+ev "$EXT._onGrabEnd($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+sleep 1.5
+check "dropped into a zone: out of the tiling" "false" "$(tiled "$E2")"
+check "dropped into a zone: snapped" "0,32,960,1048" "$(rect_w "$E2")"
+check "the right column takes the whole width" "0,432,1920,648" "$(rect_w "$E1")"
+
+echo "== tiling: linked resizing off"
+ev "$EXT._settings.set_boolean('linked-resizing', false); 'ok'" >/dev/null
+ev "$EXT._onGrabBegin($E1, Meta.GrabOp.RESIZING_N); $E1.move_resize_frame(true, 0, 300, 1920, 780); 'ok'" >/dev/null
+sleep 1
+check "neighbour untouched (taller than its cell: minimum height)" "0,32,1920,616" "$(rect_w "$CALC")"
+ev "$EXT._onGrabEnd($E1, Meta.GrabOp.RESIZING_N); 'ok'" >/dev/null
+sleep 1.5
+check "resized window is on its own" "false" "$(tiled "$E1")"
+check "the other window takes the space" "0,32,1920,1048" "$(rect_w "$CALC")"
+ev "$EXT._settings.set_boolean('linked-resizing', true); 'ok'" >/dev/null
+
+echo "== tiling: closing a window"
+focus_w "$E1"
+ev "$EXT._onAction('arrange-windows'); 'ok'" >/dev/null
+sleep 1.5
+check "three tiled" "true true true" "$(tiled "$E1" "$E2" "$CALC")"
+ev "$E2.delete(global.get_current_time()); 'ok'" >/dev/null
+wait_for "second editor closed" "1" "$WINS.filter(x => x.get_wm_class() === 'org.gnome.TextEditor').length"
+wait_for "the other window of its column takes the space" "960,32,960,1048" "$R R($CALC.get_frame_rect())"
+check "release available" "true" "$(ev "$EXT.canPerform('untile-window', $E1)")"
+
+echo "== layouts: dialog and menu"
 ev "$EXT._onAction('save-layout'); 'ok'" >/dev/null
 sleep 1
 check "save dialog open" "true" "$(ev "$EXT._layoutDialog?.state === 0")"
@@ -274,6 +392,11 @@ ev "$IND.menu.open(false); 'ok'" >/dev/null
 sleep 0.5
 check "menu lists saved layouts" "Dev1,Dev2" "$(ev "$IND._savedSection._getMenuItems().map(i => i.label.text).join(',')")"
 check "arrange item enabled" "true" "$(ev "$IND._items.get('arrange-windows').sensitive")"
+check "release item enabled for a tiled window" "true" "$(ev "$IND._items.get('untile-window').sensitive")"
+ev "$IND._linkedSwitch.toggle(); 'ok'" >/dev/null
+check "linked resizing switch off" "false" "$(ev "$EXT._settings.get_boolean('linked-resizing')")"
+ev "$IND._linkedSwitch.toggle(); 'ok'" >/dev/null
+check "linked resizing switch on" "true" "$(ev "$EXT._settings.get_boolean('linked-resizing')")"
 ev "$IND.menu.close(false); 'ok'" >/dev/null
 check "delete" "true" "$(ev "$EXT._deleteLayout('Dev2')")"
 check "layouts after delete" "Dev1:2" "$(ev "$LAYOUT_NAMES")"
@@ -284,6 +407,41 @@ sleep 0.5
 check "menu shows the empty state" "No layouts saved yet" "$(ev "$IND._savedSection._getMenuItems().map(i => i.label.text).join(',')")"
 ev "$IND.menu.close(false); 'ok'" >/dev/null
 check "restore last layout unavailable" "false" "$(ev "$EXT.canPerform('restore-last-layout', null)")"
+focus_w "$E1"
+action untile-window
+focus_w "$CALC"
+action untile-window
+check "released windows" "false false" "$(tiled "$E1" "$CALC")"
+focus_w "$E1"
+action snap-left-third
+focus_w "$CALC"
+action snap-right-two-thirds
+check "save windows placed by hand" "ok" "$(ev "$EXT._saveLayout('Thirds') ? 'ok' : 'empty'")"
+check "saved where they are" "v 0.333 org.gnome.TextEditor org.gnome.Calculator" \
+    "$(ev "const t = $EXT._getLayouts().find(l => l.name === 'Thirds').monitors[0].tree; [t.split, t.ratio.toFixed(3), t.a.wmClass, t.b.wmClass].join(' ')")"
+sleep 1.5
+check "saving tiles them" "true true" "$(tiled "$E1" "$CALC")"
+check "saving does not move them: left" "0,32,640,1048" "$(rect_w "$E1")"
+check "saving does not move them: right" "640,32,1280,1048" "$(rect_w "$CALC")"
+focus_w "$E1"
+action snap-maximize
+focus_w "$CALC"
+action snap-maximize
+check "restore after maximizing both" "true" "$(ev "$EXT._restoreLayout('Thirds')")"
+sleep 2
+check "restored: left third" "0,32,640,1048" "$(rect_w "$E1")"
+check "restored: right two thirds" "640,32,1280,1048" "$(rect_w "$CALC")"
+ev "$EXT._onAction('save-layout'); 'ok'" >/dev/null
+sleep 1
+check "save dialog opens any time" "true" "$(ev "$EXT._layoutDialog?.state === 0")"
+ev "$EXT._layoutDialog.close(); 'ok'" >/dev/null
+sleep 1
+ev "$IND.menu.open(false); 'ok'" >/dev/null
+sleep 0.5
+check "saved layouts submenu" "Thirds" "$(ev "$IND._savedSection._getMenuItems().map(i => i.label.text).join(',')")"
+ev "$IND._savedSection._getMenuItems()[0].activate(imports.gi.Clutter.get_current_event()); 'ok'" >/dev/null
+sleep 1.5
+check "picking a saved layout restores it" "Thirds" "$(ev "$EXT._settings.get_string('last-layout')")"
 
 echo "== preferences window"
 gnome-extensions prefs "$UUID"

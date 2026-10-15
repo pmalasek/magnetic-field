@@ -78,6 +78,11 @@ export const ACTION_GROUPS = [
             ['arrange-windows', 'Arrange windows'],
             ['save-layout', 'Save layout…'],
             ['restore-last-layout', 'Restore last layout'],
+            ['swap-left', 'Swap left'],
+            ['swap-right', 'Swap right'],
+            ['swap-up', 'Swap up'],
+            ['swap-down', 'Swap down'],
+            ['untile-window', 'Release from tiling'],
         ],
     },
 ];
@@ -86,3 +91,11 @@ export const ACTION_NAMES = ACTION_GROUPS.flatMap(group => group.actions.map(([n
 
 // Actions that work on all windows of the workspace rather than on one.
 export const WINDOWLESS_ACTIONS = new Set(['arrange-windows', 'save-layout', 'restore-last-layout']);
+
+// Swap actions and the direction of the neighbour they swap with.
+export const SWAP_DIRECTIONS = {
+    'swap-left': 'left',
+    'swap-right': 'right',
+    'swap-up': 'top',
+    'swap-down': 'bottom',
+};

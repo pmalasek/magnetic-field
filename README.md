@@ -15,10 +15,12 @@ GNOME 45-50 but those versions have not been tested.
 - Snap to the **left / center / right third** or to **two thirds**.
 - **Maximize**, **center** and **restore** the previous size and position.
 - **Move a window to the next or previous display**, keeping its zone.
-- **Layouts**: arrange all windows of the workspace in a grid, rearrange them,
-  save the result under a name and restore it later. Restoring reuses the
-  windows that are open and launches the apps that are missing. Positions are
-  stored as fractions of the screen, so a layout works on any screen size.
+- **Tiling and layouts**: Arrange tiles all windows of the workspace, the
+  focused one in the left column. Tiled windows share their edges: resizing
+  one resizes its neighbours live, and windows can be swapped by dragging or
+  with the keyboard. Save the arrangement under a name and restore it later;
+  restoring reuses open windows and launches the apps that are missing.
+  Layouts store proportions, so they work on any screen size.
 - **Drag to snap**: drag a window to an edge or corner, a translucent preview
   shows where it will land, release to snap.
 - **Top bar menu**: a magnet icon in the top bar lists every action with its
@@ -56,6 +58,9 @@ changed in the preferences.
 | Arrange windows          | Super+Ctrl+A             |
 | Save layout              | Super+Ctrl+S             |
 | Restore last layout      | Super+Ctrl+L             |
+| Swap left / right        | Super+Ctrl+Shift+Left / Right |
+| Swap up / down           | Super+Ctrl+Shift+Up / Down    |
+| Release from tiling      | Super+Ctrl+Shift+Backspace    |
 
 ## Top bar menu
 
@@ -65,45 +70,73 @@ shortcut. Picking an item moves the window that was focused when the menu was
 opened; items that cannot apply to that window (Restore before a snap, display
 moves with a single monitor) are greyed out or hidden. Below the actions:
 
-- **Layouts** opens a submenu with Arrange windows, Save layout and Restore
-  last layout, followed by the saved layouts; picking one restores it,
+- **Layouts** opens a submenu with Arrange windows, Save layout, Restore last
+  layout, the swap actions, Release from tiling and the **Linked resizing**
+  switch,
+- **Saved layouts** lists the saved layouts; picking one restores it,
 - **Drag to snap** switches drag snapping on and off,
 - **Help** opens a dialog with a map of the drag zones and a short how-to,
 - **Settings** opens the preferences.
 
-## Layouts
-
-A layout is a named set of apps with the position and size of their windows.
+## Tiling and layouts
 
 1. Open the apps you want, for example Visual Studio Code, Tilix and Firefox.
-2. **Arrange windows** (Super+Ctrl+A or the menu) tiles every window of the
-   current workspace into a grid, one grid per monitor, with the focused
-   window in the top left cell.
-3. Rearrange the windows any way you like: shortcuts, drag to snap, or by
-   resizing them by hand.
-4. **Save layout** (Super+Ctrl+S) asks for a name. Saving under an existing
-   name replaces that layout.
-5. Later, pick the layout in the **Layouts** submenu of the top bar menu, or press
-   Super+Ctrl+L for the layout saved or restored last.
+2. **Arrange windows** (Super+Ctrl+A) tiles every window of the current
+   workspace, one tiling per monitor. The focused window gets the left
+   column; the others fill the columns to its right in the order they had on
+   screen (left to right, then top to bottom). The number of columns is the
+   square root of the number of windows, rounded up, and the first columns
+   get the fewest windows:
 
-What gets saved: every normal window of the current workspace (dialogs,
-minimized windows and windows hidden from the taskbar are left out) with its
-app, monitor, position and size, and whether it was maximized. Position and
-size are fractions of the monitor work area without the window gap, so a
-layout keeps its proportions on another screen and with another gap.
+   ```
+   3 windows        4 windows        5 windows
+   +-----+-----+    +-----+-----+    +---+---+---+
+   |     |  2  |    |  1  |  3  |    |   | 2 | 4 |
+   |  1  +-----+    +-----+-----+    | 1 +---+---+
+   |     |  3  |    |  2  |  4  |    |   | 3 | 5 |
+   +-----+-----+    +-----+-----+    +---+---+---+
+   ```
+
+3. Adjust the tiling:
+   - **Resize** a window by dragging its edge: the divider moves and the
+     windows on the other side shrink or grow with it, live. Switch this off
+     with **Linked resizing** in the menu or the preferences; a window resized
+     by hand then leaves the tiling.
+   - **Swap** two windows by dragging one onto the other (a preview shows the
+     target) or with Super+Ctrl+Shift+arrow, which swaps with the neighbour
+     sharing the longest stretch of that edge. A window dropped anywhere else
+     returns to its cell.
+   - A window **leaves the tiling** when it is closed, minimized, maximized,
+     made fullscreen, snapped to a zone (by shortcut or by dragging it to a
+     screen edge, zones win over swapping), moved to another monitor or
+     workspace, or released with Super+Ctrl+Shift+Backspace. Its neighbours
+     take its space.
+4. **Save layout** (Super+Ctrl+S) asks for a name and stores the apps with
+   the proportions of the tiling. Saving under an existing name replaces that
+   layout. Save works at any time: windows that are not tiled yet (placed by
+   hand or snapped to zones) are tiled where they are first. The dividers go
+   between the windows, gaps are shared by the neighbours, and windows
+   overlapping too much to be separated by straight lines are arranged as in
+   step 2.
+5. Later, pick the layout in the **Saved layouts** submenu of the top bar
+   menu, or press Super+Ctrl+L for the layout saved or restored last.
 
 What restoring does:
 
 - Each saved window is paired with an open window of the same app on the
-  current workspace; every open window is used once. Paired windows are moved
-  into place (and unminimized).
+  current workspace; every open window is used once. Paired windows are
+  tiled again (and unminimized).
 - Apps without a matching window are launched: the app itself if it is not
-  running, otherwise a new window of it. Their windows are placed as soon as
-  they appear. The extension waits at most 30 seconds.
-- A window that was on a monitor which is no longer connected goes to the
-  primary monitor.
+  running, otherwise a new window of it. Their cells stay empty until the
+  windows appear. After 30 seconds the extension stops waiting and gives the
+  empty cells to their neighbours.
+- The tiling of a monitor that is no longer connected goes to the primary
+  monitor.
 - Windows that do not belong to an installed app (no `.desktop` file) are
   matched by their window class but cannot be launched.
+
+A window cannot be made smaller than its minimum size. If a neighbour would
+have to shrink below it, the divider stops there.
 
 Layouts can be renamed and deleted in the preferences, on the Layouts page.
 
@@ -172,6 +205,7 @@ Open them with `just prefs` or from the Extensions app.
 | `show-preview`    | true    | Show the translucent preview while dragging                  |
 | `edge-threshold`  | 24      | Width in pixels of the band along the edges that triggers    |
 | `corner-size`     | 150     | Length in pixels of the corner zones along each edge         |
+| `linked-resizing` | true    | Tiled windows resize their neighbours                        |
 | `layouts`         | ''      | Saved layouts as JSON (see the schema for the format)        |
 | `last-layout`     | ''      | Name of the layout saved or restored last                    |
 
@@ -191,13 +225,17 @@ indicator.js        Top bar icon and its menu
 helpDialog.js       Help dialog with the drag zone map, opened from the menu
 layoutDialog.js     Dialog that asks for the name of a layout to save
 actions.js          Zone geometry and the list of actions, shared with prefs.js
-layouts.js          Layout geometry, grid and JSON helpers, shared with prefs.js
+layouts.js          Layout geometry and JSON format, shared with prefs.js
+tiling.js           Split trees: arrange, resize, swap, remove (pure, unit tested)
+tilingManager.js    Tiling groups on the Shell side: signals, live resizing, swaps
+windowUtils.js      Window helpers shared by extension.js and tilingManager.js
 prefs.js            Preferences window (GTK4 + libadwaita), runs in a separate process
 metadata.json       UUID, name, supported Shell versions, schema id
 stylesheet.css      Style of the drag preview, the menu and the help dialog
 icons/              Symbolic top bar icon
 schemas/            GSettings schema (must be compiled, see justfile)
 tests/smoke-test.sh Headless end-to-end test (just test)
+tests/tiling-test.js Unit tests of tiling.js and layouts.js (just unit)
 justfile            install / zip / log / devkit / headless / test recipes
 ```
 
@@ -276,7 +314,8 @@ it is a new process every time. After changing the schema: `just install`
 ### Scripted testing
 
 ```sh
-just test
+just unit            # split tree and layout format, plain gjs, no Shell
+just test            # unit tests, then the headless smoke test
 ```
 
 `just test` builds the zip first, so the test also catches files missing from
@@ -296,9 +335,11 @@ It checks the zone geometry, every keyboard action, a window with a minimum
 size, a simulated drag with a virtual pointer (`Clutter.VirtualInputDevice`,
 relative motion only: absolute motion ignores x in the headless backend), the
 top bar menu (shortcut labels, acting on the focused window, the drag switch,
-the help dialog, hiding the icon), layouts (arrange, save, restore, launching
-a closed app and placing its window, the save dialog, the menu of saved
-layouts), the preferences window, and that
+the help dialog, hiding the icon), tiling (arranging two and three windows,
+live linked resizing, swapping by keyboard and by dragging, zones taking a
+window out, closing a window), layouts (save, restore, launching a closed app
+into its cell, the save dialog, the menu of saved layouts), the preferences
+window, and that
 `org.gnome.mutter edge-tiling` is restored on disable. Each check prints
 `PASS` or `FAIL`; the Shell log is left in `/tmp/magnetic-field-shell.log`.
 `Eval` only works with `--unsafe-mode`, never in a normal session.
@@ -363,6 +404,9 @@ process name you will see is `gjs`, not `gnome-extensions`.
   `_moveResize()` re-sends the position once the client has answered; check
   the shell log if that does not happen.
 
+- **A neighbour does not shrink when I resize a tiled window**: it is at its
+  minimum size, so the divider stops. During the drag a window that cannot
+  shrink further keeps its minimum size; the final position is exact.
 - **A layout restores but an app's window is not placed**: the app could not
   open another window (single-instance apps that refuse a new window), it did
   not appear within 30 seconds, or its window reports a different app than the

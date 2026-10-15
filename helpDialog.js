@@ -163,10 +163,17 @@ class HelpDialog extends ModalDialog.ModalDialog {
 
         this.contentLayout.add_child(this._heading(_('Layouts')));
         this.contentLayout.add_child(this._paragraph(
-            _('Arrange windows tiles every window of the workspace into a grid. ' +
-            'Move and resize them as you like, then Save layout stores the apps ' +
-            'and their positions under a name. Picking the layout in the Layouts ' +
-            'submenu puts the windows back and launches the apps that are not running.')));
+            _('Arrange windows tiles the windows of the workspace: the focused ' +
+            'window gets the left column, the others are stacked next to it. ' +
+            'Tiled windows share their edges, so dragging one edge resizes the ' +
+            'neighbours too. Drag a window onto another one, or press ' +
+            'Super+Ctrl+Shift+arrow, to swap them. Snapping a window to a zone ' +
+            'or maximizing it takes it out of the tiling.')));
+        this.contentLayout.add_child(this._paragraph(
+            _('Save layout stores the apps and their proportions under a name, ' +
+            'tiling windows placed by hand where they are. Picking the layout ' +
+            'under Saved layouts tiles the windows again and launches the apps ' +
+            'that are not running.')));
 
         this.addButton({
             label: _('Settings'),

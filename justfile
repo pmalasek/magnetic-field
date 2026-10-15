@@ -1,6 +1,6 @@
 uuid        := "magnetic-field@petr.malasek.gmail.com"
 install_dir := env("HOME") / ".local/share/gnome-shell/extensions" / uuid
-sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js layouts.js layoutDialog.js metadata.json stylesheet.css"
+sources     := "extension.js prefs.js actions.js indicator.js helpDialog.js layouts.js layoutDialog.js tiling.js tilingManager.js windowUtils.js metadata.json stylesheet.css"
 schema      := "schemas/org.gnome.shell.extensions.magnetic-field.gschema.xml"
 zip_file    := uuid + ".shell-extension.zip"
 
@@ -31,7 +31,9 @@ zip: schemas
     gnome-extensions pack --force --out-dir=. \
         --extra-source=actions.js --extra-source=indicator.js \
         --extra-source=helpDialog.js --extra-source=layouts.js \
-        --extra-source=layoutDialog.js --extra-source=icons .
+        --extra-source=layoutDialog.js --extra-source=tiling.js \
+        --extra-source=tilingManager.js --extra-source=windowUtils.js \
+        --extra-source=icons .
     @ls -l {{zip_file}}
 
 # Enable the extension
@@ -70,8 +72,12 @@ headless:
     GSETTINGS_BACKEND=memory dbus-run-session -- gnome-shell --headless --no-x11 \
         --virtual-monitor 1920x1080 --wayland --wayland-display=mf-dev --unsafe-mode
 
-# Build the zip, then run the headless smoke test on it
-test: zip
+# Unit tests of the split tree and the layout format (plain gjs, no Shell)
+unit:
+    gjs -m tests/tiling-test.js
+
+# Unit tests, then build the zip and run the headless smoke test on it
+test: unit zip
     tests/smoke-test.sh
 
 # Remove build artifacts

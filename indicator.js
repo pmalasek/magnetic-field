@@ -20,6 +20,11 @@ const ACTION_ICONS = {
     'arrange-windows': 'view-grid-symbolic',
     'save-layout': 'document-save-symbolic',
     'restore-last-layout': 'document-revert-symbolic',
+    'swap-left': 'object-flip-horizontal-symbolic',
+    'swap-right': 'object-flip-horizontal-symbolic',
+    'swap-up': 'object-flip-vertical-symbolic',
+    'swap-down': 'object-flip-vertical-symbolic',
+    'untile-window': 'view-restore-symbolic',
 };
 const CENTER_GLYPH = {x: 1 / 4, y: 1 / 4, w: 1 / 2, h: 1 / 2};
 
@@ -194,10 +199,17 @@ class MagneticFieldIndicator extends PanelMenu.Button {
             }
 
             if (isLayouts) {
-                // Filled from the settings each time the menu opens.
-                target.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(_('Saved layouts')));
-                this._savedSection = new PopupMenu.PopupMenuSection();
-                target.addMenuItem(this._savedSection);
+                this._linkedSwitch = new PopupMenu.PopupSwitchMenuItem(_('Linked resizing'),
+                    this._settings.get_boolean('linked-resizing'));
+                this._linkedSwitch.connect('toggled',
+                    (item, state) => this._settings.set_boolean('linked-resizing', state));
+                target.addMenuItem(this._linkedSwitch);
+
+                // A submenu of its own, filled each time the menu opens.
+                this._savedItem = new PopupMenu.PopupSubMenuMenuItem(_('Saved layouts'), true);
+                this._savedItem.icon.icon_name = 'view-list-symbolic';
+                this._savedSection = this._savedItem.menu;
+                section.addMenuItem(this._savedItem);
             }
             if (group.actions.some(([name]) => name.startsWith('move-to-')))
                 this._displaySection = section;
@@ -240,6 +252,7 @@ class MagneticFieldIndicator extends PanelMenu.Button {
         this._displaySection.actor.visible = global.display.get_n_monitors() > 1;
         this._syncLayouts();
         this._dragSwitch.setToggleState(this._settings.get_boolean('drag-snapping'));
+        this._linkedSwitch.setToggleState(this._settings.get_boolean('linked-resizing'));
     }
 
     _syncLayouts() {

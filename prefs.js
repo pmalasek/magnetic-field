@@ -9,7 +9,9 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {ACTION_GROUPS} from './actions.js';
-import {parseLayouts, removeLayout, renameLayout, serializeLayouts} from './layouts.js';
+import {
+    layoutWindowCount, parseLayouts, removeLayout, renameLayout, serializeLayouts,
+} from './layouts.js';
 
 // Keys that make no sense as a bare shortcut (they are needed for navigation).
 const FORBIDDEN_KEYVALS = [
@@ -184,6 +186,14 @@ export default class MagneticFieldPreferences extends ExtensionPreferences {
         });
         settings.bind('window-gap', gap, 'value', Gio.SettingsBindFlags.DEFAULT);
         layout.add(gap);
+
+        const linked = new Adw.SwitchRow({
+            title: _('Linked resizing'),
+            subtitle: _('Windows placed by Arrange or by a saved layout share their ' +
+                'edges: resizing one resizes its neighbours'),
+        });
+        settings.bind('linked-resizing', linked, 'active', Gio.SettingsBindFlags.DEFAULT);
+        layout.add(linked);
         page.add(layout);
 
         const drag = new Adw.PreferencesGroup({
@@ -269,10 +279,10 @@ export default class MagneticFieldPreferences extends ExtensionPreferences {
         });
         const group = new Adw.PreferencesGroup({
             title: _('Saved layouts'),
-            description: _('Arrange your windows, then save the layout from the top bar ' +
-                'menu or with the Save layout shortcut. Restoring a layout reuses the ' +
-                'windows that are open and launches the missing apps. Edit a name and ' +
-                'press the check mark to rename a layout.'),
+            description: _('Arrange the windows, adjust their sizes and order, then save ' +
+                'the layout from the top bar menu or with the Save layout shortcut. ' +
+                'Restoring a layout reuses the windows that are open and launches the ' +
+                'missing apps. Edit a name and press the check mark to rename a layout.'),
         });
         page.add(group);
 
@@ -313,7 +323,7 @@ export default class MagneticFieldPreferences extends ExtensionPreferences {
                     }
                 });
 
-                const count = layout.windows.length;
+                const count = layoutWindowCount(layout);
                 row.add_suffix(new Gtk.Label({
                     label: count === 1 ? _('1 window') : _('%d windows').replace('%d', count),
                     css_classes: ['dim-label'],
