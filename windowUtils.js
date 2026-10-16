@@ -36,3 +36,11 @@ export function unmaximize(window) {
     else
         window.unmaximize();
 }
+
+// False once a closed window has lost its actor. Moving or resizing an
+// unmanaged window crashes Mutter on Wayland. The actor can outlive the
+// window while its close animation runs, so code that sees a window go away
+// should also listen to its `unmanaging` signal.
+export function isManaged(window) {
+    return !!window.get_compositor_private();
+}

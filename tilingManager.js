@@ -14,7 +14,7 @@ import {
     cloneTree, findSplitForEdge, hasLeaf, insertBeside, leafIds, leafRects,
     mapLeaves, neighbourLeaf, removeLeaf, replaceLeafId, resizeEdge, swapLeaves,
 } from './tiling.js';
-import {MAXIMIZE_NOTIFY_SIGNALS, isMaximized} from './windowUtils.js';
+import {MAXIMIZE_NOTIFY_SIGNALS, isManaged, isMaximized} from './windowUtils.js';
 
 const EDGES = ['left', 'right', 'top', 'bottom'];
 
@@ -41,7 +41,7 @@ export class TilingManager {
     }
 
     destroy() {
-        this._cancelResize();
+        this.cancelResize();
         this.releaseAll({reapply: false});
         global.display.disconnect(this._leftMonitorId);
         Main.layoutManager.disconnect(this._monitorsChangedId);
@@ -129,7 +129,7 @@ export class TilingManager {
             return false;
 
         if (this._resize?.window === window)
-            this._cancelResize();
+            this.cancelResize();
 
         for (const id of group.signals.get(window) ?? [])
             window.disconnect(id);
@@ -174,7 +174,7 @@ export class TilingManager {
     // id that is returned.
     _detach(group, window) {
         if (this._resize?.window === window)
-            this._cancelResize();
+            this.cancelResize();
         for (const id of group.signals.get(window) ?? [])
             window.disconnect(id);
         group.signals.delete(window);
@@ -252,7 +252,7 @@ export class TilingManager {
     apply(group, {skip = null, final = false} = {}) {
         for (const [id, frac] of leafRects(group.tree)) {
             const window = group.windows.get(id);
-            if (!window || window === skip || !window.get_compositor_private())
+            if (!window || window === skip || !isManaged(window))
                 continue;
             const rect = this._extension._fractionRect(frac, group.monitor);
             if (!final && sameRect(group.lastRects.get(id), rect))
@@ -326,7 +326,7 @@ export class TilingManager {
     // Called when the user starts resizing `window`. Returns false when the
     // window is not tiled or linked resizing is off.
     beginResize(window) {
-        this._cancelResize();
+        this.cancelResize();
         const group = this.groupOf(window);
         if (!group || !this._settings.get_boolean('linked-resizing'))
             return false;
@@ -355,7 +355,7 @@ export class TilingManager {
         if (!resize)
             return;
         this._onResizeChanged(true);
-        this._cancelResize();
+        this.cancelResize();
         if (this._groups.includes(resize.group))
             this.apply(resize.group, {final: true});
     }
@@ -364,7 +364,7 @@ export class TilingManager {
         return this._resize?.window ?? null;
     }
 
-    _cancelResize() {
+    cancelResize() {
         const resize = this._resize;
         if (!resize)
             return;

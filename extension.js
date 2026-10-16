@@ -36,7 +36,7 @@ import {TilingManager} from './tilingManager.js';
 import {EdgeLinker} from './edgeLinker.js';
 import {dropRegion, splitRect} from './edges.js';
 import {
-    MAXIMIZE_NOTIFY_SIGNALS, SNAPPABLE_TYPES, isMaximized, maximize, unmaximize,
+    MAXIMIZE_NOTIFY_SIGNALS, SNAPPABLE_TYPES, isManaged, isMaximized, maximize, unmaximize,
 } from './windowUtils.js';
 
 const PREVIEW_SHOW_MS = 150;
@@ -86,6 +86,8 @@ export default class MagneticFieldExtension extends Extension {
         this._dropTarget = null;
         this._dragStartRect = null;
         this._dragStartLinked = false;
+        // The window of the current grab op, see _trackGrab().
+        this._grab = null;
 
         this._addKeybindings();
 
@@ -111,6 +113,7 @@ export default class MagneticFieldExtension extends Extension {
         global.display.disconnect(this._grabEndId);
         this._grabBeginId = 0;
         this._grabEndId = 0;
+        this._untrackGrab();
 
         this._settings.disconnect(this._dragSettingId);
         this._dragSettingId = 0;
@@ -251,6 +254,8 @@ export default class MagneticFieldExtension extends Extension {
     }
 
     _applyZone(window, zoneName, monitorIndex) {
+        if (!isManaged(window))
+            return;
         const gap = this._settings.get_int('window-gap');
         const entry = this._rememberOriginal(window);
         entry.zone = zoneName;
@@ -272,6 +277,8 @@ export default class MagneticFieldExtension extends Extension {
     }
 
     _moveResize(window, rect) {
+        if (!isManaged(window))
+            return;
         const request = () => {
             window.move_resize_frame(true, rect.x, rect.y, rect.width, rect.height);
             // A client may refuse the size (minimum size hints). Mutter then
@@ -296,7 +303,7 @@ export default class MagneticFieldExtension extends Extension {
     }
 
     _centerWindow(window) {
-        if (!window.allows_move())
+        if (!isManaged(window) || !window.allows_move())
             return;
 
         const entry = this._rememberOriginal(window);
@@ -326,7 +333,7 @@ export default class MagneticFieldExtension extends Extension {
 
     _restoreWindow(window) {
         const entry = this._originals.get(window.get_id());
-        if (!entry)
+        if (!entry || !isManaged(window))
             return;
         this._forget(window);
 
@@ -342,7 +349,7 @@ export default class MagneticFieldExtension extends Extension {
     }
 
     _moveToDisplay(window, delta) {
-        if (!window.allows_move())
+        if (!isManaged(window) || !window.allows_move())
             return;
 
         const count = global.display.get_n_monitors();
@@ -439,6 +446,9 @@ export default class MagneticFieldExtension extends Extension {
     // --------------------------------------------------------------- drag
 
     _onGrabBegin(window, op) {
+        this._untrackGrab();
+        if (window)
+            this._trackGrab(window);
         if (!window || !this._isSnappable(window))
             return;
 
@@ -601,6 +611,8 @@ export default class MagneticFieldExtension extends Extension {
     }
 
     _onGrabEnd(window, op) {
+        const gone = this._grab?.window === window && this._grab.gone;
+        this._untrackGrab();
         const dragWindow = this._dragWindow;
         const zone = this._dragZone;
         const monitorIndex = this._dragMonitor;
@@ -610,7 +622,11 @@ export default class MagneticFieldExtension extends Extension {
         this._stopDrag();
         this._tiling.setDragging(null);
 
-        if (!window)
+        // A client can destroy its window during a grab (a browser tab
+        // dragged out and dropped back onto the tab bar). Mutter then ends
+        // the grab while unmanaging the window, and moving or resizing it
+        // here would crash the Shell.
+        if (!window || gone || !isManaged(window))
             return;
 
         if (this._tiling.resizingWindow === window) {
@@ -628,7 +644,7 @@ export default class MagneticFieldExtension extends Extension {
             return;
         }
 
-        if (window === dragWindow && dropTarget?.window.get_compositor_private()) {
+        if (window === dragWindow && dropTarget && isManaged(dropTarget.window)) {
             this._dropOnWindow(window, dropTarget, startRect, startLinked);
             return;
         }
@@ -662,6 +678,30 @@ export default class MagneticFieldExtension extends Extension {
         this._dragMonitor = -1;
         this._dropTarget = null;
         this._hidePreview();
+    }
+
+    // Watch the window of a grab op: when it goes away before the grab
+    // ends, the drag or resize is dropped right away.
+    _trackGrab(window) {
+        const grab = {window, gone: false, unmanagingId: 0};
+        grab.unmanagingId = window.connect('unmanaging', () => {
+            grab.gone = true;
+            this._stopDrag();
+            this._tiling.setDragging(null);
+            if (this._tiling.resizingWindow === window)
+                this._tiling.cancelResize();
+            if (this._links.resizingWindow === window)
+                this._links.cancelResize();
+        });
+        this._grab = grab;
+    }
+
+    _untrackGrab() {
+        const grab = this._grab;
+        if (!grab)
+            return;
+        this._grab = null;
+        grab.window.disconnect(grab.unmanagingId);
     }
 
     // ------------------------------------------------------------ preview
@@ -1125,7 +1165,7 @@ export default class MagneticFieldExtension extends Extension {
         const finish = () => {
             this._cancelWait(window, wait);
             // A window that went away in the meantime has no actor any more.
-            if (window.get_compositor_private())
+            if (isManaged(window))
                 callback();
         };
         const check = () => {

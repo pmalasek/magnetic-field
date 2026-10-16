@@ -373,8 +373,18 @@ focus_w "$E1"
 ev "$EXT._onAction('arrange-windows'); 'ok'" >/dev/null
 sleep 1.5
 check "three tiled" "true true true" "$(tiled "$E1" "$E2" "$CALC")"
-ev "$E2.delete(global.get_current_time()); 'ok'" >/dev/null
+# The window is closed by its client in the middle of a drag (like a browser
+# tab dropped back onto the tab bar). Mutter then ends the grab for the
+# unmanaged window; moving it there used to crash the Shell.
+ev "$EXT._onGrabBegin($E2, Meta.GrabOp.MOVING); 'ok'" >/dev/null
+move_pointer 3 540
+check "dragging the window into a zone" "snap-left-half" "$(ev "$EXT._dragZone")"
+ev "globalThis.__mfClosed = $E2; __mfClosed.delete(global.get_current_time()); 'ok'" >/dev/null
 wait_for "second editor closed" "1" "$WINS.filter(x => x.get_wm_class() === 'org.gnome.TextEditor').length"
+check "closing the dragged window stops the drag" "false null true" \
+    "$(ev "($EXT._pollId !== 0) + ' ' + $EXT._dragWindow + ' ' + $EXT._grab?.gone")"
+check "grab end for the closed window is ignored" "ok null" \
+    "$(ev "$EXT._onGrabEnd(__mfClosed, Meta.GrabOp.MOVING); delete globalThis.__mfClosed; 'ok ' + $EXT._grab")"
 wait_for "the other window of its column takes the space" "960,32,960,1048" "$R R($CALC.get_frame_rect())"
 check "release available" "true" "$(ev "$EXT.canPerform('untile-window', $E1)")"
 

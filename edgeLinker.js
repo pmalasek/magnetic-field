@@ -6,6 +6,7 @@
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {lineOf, lineRange, linkedLine, moveLine} from './edges.js';
+import {isManaged} from './windowUtils.js';
 
 const EDGES = ['left', 'right', 'top', 'bottom'];
 
@@ -34,7 +35,7 @@ export class EdgeLinker {
     }
 
     destroy() {
-        this._cancel();
+        this.cancelResize();
         this._extension = null;
         this._settings = null;
     }
@@ -46,7 +47,7 @@ export class EdgeLinker {
     // The user starts resizing `window`; `neighbours` are the other snapped
     // windows of its monitor. Returns false when linked resizing is off.
     beginResize(window, neighbours) {
-        this._cancel();
+        this.cancelResize();
         if (!this._settings.get_boolean('linked-resizing'))
             return false;
 
@@ -93,10 +94,10 @@ export class EdgeLinker {
         if (!this._resize)
             return;
         this._onChanged(true);
-        this._cancel();
+        this.cancelResize();
     }
 
-    _cancel() {
+    cancelResize() {
         const resize = this._resize;
         if (!resize)
             return;
@@ -138,7 +139,7 @@ export class EdgeLinker {
 
         for (const [id, rect] of targets) {
             const window = r.windows.get(id);
-            if (!window.get_compositor_private())
+            if (!isManaged(window))
                 continue;
             if (final) {
                 this._extension._moveResize(window, rect);
