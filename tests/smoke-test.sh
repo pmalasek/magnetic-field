@@ -157,6 +157,7 @@ action snap-bottom-right-quarter; check "bottom right quarter" "960,556,960,524"
 action snap-maximize;             check "maximize" "0,32,1920,1048 max" "$(rect)"
 action snap-center-third;         check "center third after maximize" "640,32,640,1048" "$(rect)"
 action snap-right-two-thirds;     check "right two thirds" "640,32,1280,1048" "$(rect)"
+action snap-center-two-thirds;    check "center two thirds" "320,32,1280,1048" "$(rect)"
 action center-window
 check "center" "centered" "$(ev "$R const w = global.display.focus_window; const f = w.get_frame_rect(); const wa = Main.layoutManager.getWorkAreaForMonitor(0); (f.x === wa.x + Math.round((wa.width - f.width) / 2) && f.y === wa.y + Math.round((wa.height - f.height) / 2)) ? 'centered' : 'off: ' + R(f)")"
 action restore-window;            check "restore" "$ORIGINAL" "$(rect)"

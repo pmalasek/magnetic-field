@@ -118,6 +118,10 @@
       <default><![CDATA[['<Super><Control>e']]]></default>
       <summary>Left two thirds</summary>
     </key>
+    <key name="snap-center-two-thirds" type="as">
+      <default><![CDATA[['<Super><Control>r']]]></default>
+      <summary>Center two thirds</summary>
+    </key>
     <key name="snap-right-two-thirds" type="as">
       <default><![CDATA[['<Super><Control>t']]]></default>
       <summary>Right two thirds</summary>

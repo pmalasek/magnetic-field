@@ -20,6 +20,7 @@ export const ZONES = {
     'snap-center-third': {x: 1 / 3, y: 0, w: 1 / 3, h: 1},
     'snap-right-third': {x: 2 / 3, y: 0, w: 1 / 3, h: 1},
     'snap-left-two-thirds': {x: 0, y: 0, w: 2 / 3, h: 1},
+    'snap-center-two-thirds': {x: 1 / 6, y: 0, w: 2 / 3, h: 1},
     'snap-right-two-thirds': {x: 1 / 3, y: 0, w: 2 / 3, h: 1},
 
     'snap-maximize': {x: 0, y: 0, w: 1, h: 1},
@@ -54,6 +55,7 @@ export const ACTION_GROUPS = [
             ['snap-center-third', 'Center third'],
             ['snap-right-third', 'Right third'],
             ['snap-left-two-thirds', 'Left two thirds'],
+            ['snap-center-two-thirds', 'Center two thirds'],
             ['snap-right-two-thirds', 'Right two thirds'],
         ],
     },

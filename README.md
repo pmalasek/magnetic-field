@@ -12,7 +12,7 @@ GNOME 45-50 but those versions have not been tested.
 
 - Snap the focused window to the **left / right / top / bottom half**.
 - Snap to any **quarter** of the screen.
-- Snap to the **left / center / right third** or to **two thirds**.
+- Snap to the **left / center / right third** or to **left / center / right two thirds**.
 - **Maximize**, **center** and **restore** the previous size and position.
 - **Move a window to the next or previous display**, keeping its zone.
 - **Tiling and layouts**: Arrange tiles all windows of the workspace, the
@@ -52,6 +52,7 @@ changed in the preferences.
 | Center third             | Super+Ctrl+F             |
 | Right third              | Super+Ctrl+G             |
 | Left two thirds          | Super+Ctrl+E             |
+| Center two thirds        | Super+Ctrl+R             |
 | Right two thirds         | Super+Ctrl+T             |
 | Maximize                 | Super+Ctrl+Enter         |
 | Center                   | Super+Ctrl+C             |
